@@ -72,12 +72,12 @@ test('same mouse travel gives identical camera rotation throughout the hand rang
 test('camera recoil starts with velocity, not an instantaneous angle jump',()=>{
  const head={angle:0,velocity:1.1};assert.equal(head.angle,0);stepRecoil(head,1/144);assert.ok(head.angle>0&&head.angle<.01);
 });
-test('screen hit marker is visible, drifts outward and stays inside the viewport',()=>{
- const first=hitMarkerLayout(.3,.2,1280,720,0),later=hitMarkerLayout(.3,.2,1280,720,.4);
- assert.equal(first.opacity,1);assert.equal(later.opacity,1);assert.ok(later.x>first.x&&later.y<first.y);
- assert.ok(Math.hypot(later.x-first.x,later.y-first.y)<23);
+test('screen hit marker stays fixed and disappears after a quarter second',()=>{
+ const first=hitMarkerLayout(.3,.2,1280,720,0),later=hitMarkerLayout(.3,.2,1280,720,.1);
+ assert.equal(first.opacity,1);assert.deepEqual(later,first);assert.equal(first.scale,1);
  for(const [width,height] of [[1280,720],[640,480]])for(const x of [-1,0,1])for(const y of [-1,0,1]){
- const p=hitMarkerLayout(x,y,width,height,.8);assert.ok(p.x>=30&&p.x<=width-30);assert.ok(p.y>=30&&p.y<=height-30);
+ const p=hitMarkerLayout(x,y,width,height,.2);assert.ok(p.x>=18&&p.x<=width-18);assert.ok(p.y>=18&&p.y<=height-18);
  }
- assert.equal(hitMarkerLayout(0,0,1280,720,.9).opacity,0);
+ const fading=hitMarkerLayout(.3,.2,1280,720,.2);assert.equal(fading.x,first.x);assert.equal(fading.y,first.y);assert.equal(fading.scale,1);assert.ok(fading.opacity>0&&fading.opacity<1);
+ assert.equal(hitMarkerLayout(0,0,1280,720,.25).opacity,0);
 });

@@ -159,7 +159,7 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  }
  for(let i=impacts.length-1;i>=0;i--){const hit=impacts[i],age=(now-hit.born)/1000,layout=hitMarkerLayout(hit.x,hit.y,innerWidth,innerHeight,age);
   hit.marker.style.left=layout.x+'px';hit.marker.style.top=layout.y+'px';hit.marker.style.opacity=String(layout.opacity);hit.marker.style.transform=`translate(-50%,-50%) scale(${layout.scale})`;
-  if(age>=.9){hit.marker.remove();impacts.splice(i,1);}
+  if(age>=.25){hit.marker.remove();impacts.splice(i,1);}
  }
  $('time').textContent=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;
  colorShift.uniforms.strength.value=Math.max(0,1-(now-lastShot)/160);

@@ -44,9 +44,7 @@ export function stepRecoil(s,dt){
 export function kickRecoil(s){s.velocity=Math.min(20,s.velocity+13);s.angle=Math.min(.9,s.angle+.09);}
 
 export function hitMarkerLayout(x,y,width,height,age){
- const progress=Math.max(0,Math.min(1,age/.9)),travel=22*(1-(1-progress)**3);
- const length=Math.hypot(x,y),dx=length>.05?x/length:0,dy=length>.05?-y/length:-1;
- return {x:Math.max(30,Math.min(width-30,(x*.5+.5)*width+dx*travel)),
- y:Math.max(30,Math.min(height-30,(-y*.5+.5)*height+dy*travel)),
- opacity:Math.max(0,Math.min(1,(.9-age)/.35)),scale:1+.25*Math.exp(-age*18)};
+ return {x:Math.max(18,Math.min(width-18,(x*.5+.5)*width)),
+ y:Math.max(18,Math.min(height-18,(-y*.5+.5)*height)),
+ opacity:Math.max(0,Math.min(1,(.25-age)/.1)),scale:1};
 }
