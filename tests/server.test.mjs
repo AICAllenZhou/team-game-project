@@ -22,11 +22,15 @@ test('multiplayer shares room state, isolates rooms, enforces ammo and reload',a
  const shotController=new AbortController();controllers.push(shotController);const shotTimer=setTimeout(()=>shotController.abort(),3000);
  try{
  const stream=await fetch('http://localhost:3099/api/events?token='+a.token,{signal:shotController.signal});
- await post('fire',{token:a.token,shotId:'floor-check',gunYaw:0,gunPitch:-Math.PI/2,muzzleOffset:offset});
+ const muzzle={x:player.x+offset.x,y:1.5,z:player.z};
+ await post('fire',{token:a.token,shotId:'floor-check',gunYaw:0,gunPitch:0,muzzle,direction});
  const reader=stream.body.getReader();let buffer='',shot;
  while(!shot){const {value,done}=await reader.read();assert.equal(done,false);buffer+=new TextDecoder().decode(value);const match=buffer.match(/event: shot\ndata: ([^\n]+)/);if(match)shot=JSON.parse(match[1]);}
  assert.equal(shot.shotId,'floor-check');assert.equal(shot.surface,'world');assert.equal(shot.hit,null);assert.ok(Math.abs(shot.point.y+.01)<1e-8);assert.equal(shot.normal.y,1);
+ assert.deepEqual(shot.origin,muzzle);assert.deepEqual(shot.direction,direction);
  }finally{clearTimeout(shotTimer);shotController.abort();}
+ await new Promise(r=>setTimeout(r,125));await post('fire',{token:a.token,fan:true});s=await state(a.token);assert.equal(s.players.find(p=>p.id===a.id).ammo,4);
+ await post('reload',{token:a.token});await post('fire',{token:a.token,fan:true});s=await state(a.token);assert.equal(s.players.find(p=>p.id===a.id).ammo,4);
  assert.equal((await fetch('http://localhost:3099/.git/config')).status,404);
  }finally{controllers.forEach(c=>c.abort());child.kill();}
 });

@@ -7,6 +7,22 @@ export function targetHit(origin,direction,target){
 }
 
 export const PROJECTILE_SPEED=160;
+export const FAN_INTERVAL=110,FAN_CLICK_WINDOW=300;
+export function firingMode(now,lastShot,requestedFan){const fan=!!requestedFan&&lastShot>0&&now-lastShot<=650;return {fan,ready:now-lastShot>=(fan?FAN_INTERVAL:240)};}
+export function resolveBarrelShot(player,data){
+ const yaw=Number.isFinite(data.gunYaw)?data.gunYaw:player.gunYaw,pitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,Number.isFinite(data.gunPitch)?data.gunPitch:player.gunPitch));
+ let direction={x:-Math.sin(yaw)*Math.cos(pitch),y:Math.sin(pitch),z:-Math.cos(yaw)*Math.cos(pitch)};
+ if(data.direction&&[data.direction.x,data.direction.y,data.direction.z].every(Number.isFinite)){
+ const length=Math.hypot(data.direction.x,data.direction.y,data.direction.z);if(length<.9||length>1.1)return null;
+ direction={x:data.direction.x/length,y:data.direction.y/length,z:data.direction.z/length};
+ }
+ let origin={x:player.x+direction.x*.76+Math.cos(yaw)*.19,y:player.y+1.27+direction.y*.76,z:player.z+direction.z*.76-Math.sin(yaw)*.19};
+ if(data.muzzle){
+ if(![data.muzzle.x,data.muzzle.y,data.muzzle.z].every(Number.isFinite)||Math.hypot(data.muzzle.x-player.x,data.muzzle.y-player.y-1.5,data.muzzle.z-player.z)>2)return null;
+ origin={x:data.muzzle.x,y:data.muzzle.y,z:data.muzzle.z};
+ }else if(data.muzzleOffset&&[data.muzzleOffset.x,data.muzzleOffset.y,data.muzzleOffset.z].every(Number.isFinite)&&Math.hypot(data.muzzleOffset.x,data.muzzleOffset.y,data.muzzleOffset.z)<=1.4){origin={x:player.x+data.muzzleOffset.x,y:player.y+1.5+data.muzzleOffset.y,z:player.z+data.muzzleOffset.z};}
+ return {origin,direction};
+}
 export function projectileProgress(distance,seconds){return Math.min(1,Math.max(0,seconds)/Math.max(.05,distance/PROJECTILE_SPEED));}
 
 export function predictionCorrection(predicted,authoritative){

@@ -50,4 +50,11 @@ export function stepRecoil(s,dt){
   for(let i=0;i<steps;i++){s.velocity+=(-155*s.angle-16*s.velocity)*h;s.angle+=s.velocity*h;}
 }
 
-export function kickRecoil(s){s.velocity=Math.min(24,s.velocity+17);s.angle=Math.min(1,s.angle+.11);}
+export function kickRecoil(s,fan=false){const multiplier=fan?1.12:1;s.velocity=Math.min(27,s.velocity+17*multiplier);s.angle=Math.min(1.1,s.angle+.11*multiplier);}
+
+export function captureBarrelRay(gun){
+ gun.updateWorldMatrix(true,false);
+ const origin=gun.localToWorld(gun.position.clone().set(0,.025,-.52));
+ const direction=gun.position.clone().set(0,0,-1).transformDirection(gun.matrixWorld);
+ return {origin,direction};
+}

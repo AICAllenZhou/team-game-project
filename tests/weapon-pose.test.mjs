@@ -1,7 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Group,Vector3} from '../vendor/three.module.js';
-import {placeWeapon,WEAPON_REACH,freeAimInput,followAim,stepRecoil,kickRecoil} from '../weapon-pose.js';
+import {placeWeapon,WEAPON_REACH,freeAimInput,followAim,stepRecoil,kickRecoil,captureBarrelRay} from '../weapon-pose.js';
+import {resolveBarrelShot} from '../simulation.mjs';
 
 test('weapon reach stays fixed through extreme turns, walking, recoil and reload',()=>{
  const camera=new Group(),rig=new Group(),left=new Group();camera.add(rig,left);left.position.set(-.4,-.42,-.58);
@@ -76,4 +77,20 @@ test('delayed mouse input cannot cause an instantaneous camera velocity jump',()
  for(const hz of [30,60,144]){const s={yaw:0,pitch:0,lookYaw:12,lookPitch:.7,freeX:0,freeY:0,handYaw:0,handPitch:0,yawVelocity:0,pitchVelocity:0};
  for(let i=0;i<hz*2;i++){const before=s.yaw,velocity=s.yawVelocity;followAim(s,1/hz);assert.ok(Math.abs(s.yaw-before)<=8/hz+1e-9);assert.ok(Math.abs(s.yawVelocity-velocity)<=80/hz+1e-9);}
  }
+});
+
+test('beam and bullet share an immutable muzzle ray through aim and recoil',()=>{
+ const camera=new Group(),rig=new Group(),wrist=new Group(),gun=new Group();camera.add(rig);rig.add(wrist);wrist.add(gun);
+ camera.position.set(10,1.5,3);camera.rotation.set(.2,.8,.05,'YXZ');wrist.position.set(0,-.13,.07);gun.position.set(0,.13,-.07);
+ placeWeapon(rig,{yaw:-.4,pitch:.1});wrist.rotation.x=.3;
+ const ray=captureBarrelRay(gun),savedOrigin=ray.origin.clone(),savedDirection=ray.direction.clone();
+ const authoritative=resolveBarrelShot({x:10,y:0,z:3,gunYaw:0,gunPitch:0},{muzzle:ray.origin,direction:ray.direction});
+ assert.ok(new Vector3(authoritative.origin.x,authoritative.origin.y,authoritative.origin.z).distanceTo(ray.origin)<1e-10);
+ assert.ok(new Vector3(authoritative.direction.x,authoritative.direction.y,authoritative.direction.z).distanceTo(ray.direction)<1e-10);
+ wrist.rotation.x+=.6;captureBarrelRay(gun);assert.deepEqual(ray.origin,savedOrigin);assert.deepEqual(ray.direction,savedDirection);
+ const bullet=ray.origin.clone().addScaledVector(ray.direction,20);assert.ok(bullet.sub(ray.origin).cross(ray.direction).length()<1e-10);
+});
+test('fan fire adds twelve percent more recoil impulse',()=>{
+ const normal={angle:0,velocity:0},fan={angle:0,velocity:0};kickRecoil(normal);kickRecoil(fan,true);
+ assert.ok(Math.abs(fan.velocity/normal.velocity-1.12)<1e-10);assert.ok(Math.abs(fan.angle/normal.angle-1.12)<1e-10);
 });

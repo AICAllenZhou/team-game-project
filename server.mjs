@@ -2,7 +2,7 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
-import {move,traceShot} from './simulation.mjs';
+import {move,traceShot,firingMode,resolveBarrelShot} from './simulation.mjs';
 const rooms=new Map(),sessions=new Map();
 const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0,vx:0,vz:0});
 const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -27,17 +27,17 @@ const server=http.createServer(async(req,res)=>{
   const p=sessions.get(data.token);if(!p){res.writeHead(401).end();return;}p.lastSeen=Date.now();const now=Date.now(),room=rooms.get(p.room);
   if(url.pathname==='/api/input'){p.input={x:data.x,z:data.z,yaw:data.yaw,pitch:data.pitch,jump:!!data.jump};p.gunYaw=Number.isFinite(data.gunYaw)?data.gunYaw:p.yaw;p.gunPitch=Math.max(-1.35,Math.min(1.35,Number.isFinite(data.gunPitch)?data.gunPitch:p.pitch));}
   else if(url.pathname==='/api/reload'&&p.hp>0&&!p.reloadUntil&&p.ammo<6)p.reloadUntil=now+1800;
-  else if(url.pathname==='/api/fire'&&p.hp>0&&!p.reloadUntil&&p.ammo>0&&now-p.lastShot>=240){
+  else if(url.pathname==='/api/fire'&&p.hp>0&&!p.reloadUntil&&p.ammo>0&&firingMode(now,p.lastShot,data.fan).ready){
+   const ray=resolveBarrelShot(p,data);if(!ray){res.writeHead(400).end('Invalid muzzle pose');return;}
+   const fan=firingMode(now,p.lastShot,data.fan).fan;
    // Use the displayed barrel pose at the instant of firing, not a stale input tick.
    if(Number.isFinite(data.gunYaw))p.gunYaw=data.gunYaw;
    if(Number.isFinite(data.gunPitch))p.gunPitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,data.gunPitch));
-   p.lastShot=now;p.ammo--;const direction={x:-Math.sin(p.gunYaw)*Math.cos(p.gunPitch),y:Math.sin(p.gunPitch),z:-Math.cos(p.gunYaw)*Math.cos(p.gunPitch)},origin={x:p.x+direction.x*.76+Math.cos(p.gunYaw)*.19,y:p.y+1.27+direction.y*.76,z:p.z+direction.z*.76-Math.sin(p.gunYaw)*.19};
-   const offset=data.muzzleOffset;
-   if(offset&&[offset.x,offset.y,offset.z].every(Number.isFinite)&&Math.hypot(offset.x,offset.y,offset.z)<=1.4){origin.x=p.x+offset.x;origin.y=p.y+1.5+offset.y;origin.z=p.z+offset.z;}
+   p.lastShot=now;p.ammo--;const {origin,direction}=ray;
    const result=traceShot(origin,direction,[...room.values()].filter(other=>other!==p));
    const victim=result.hit?room.get(result.hit):null;
    if(victim){victim.hp=Math.max(0,victim.hp-34);if(!victim.hp){victim.deaths++;p.kills++;victim.deadUntil=now+3000;victim.input={};}}
-   broadcast(room,'shot',{id:p.id,origin,direction,...result,shotId:typeof data.shotId==='string'?data.shotId.slice(0,64):null});
+   broadcast(room,'shot',{id:p.id,origin,direction,...result,fan,shotId:typeof data.shotId==='string'?data.shotId.slice(0,64):null});
   }
   res.writeHead(204).end();return;
  }
