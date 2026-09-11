@@ -1,4 +1,10 @@
 export const LIMIT=27, SPEED=4.5;
+export const TRAINING_TARGETS=[-4,0,4].map((x,i)=>({id:`target-${i}`,x,y:1.6,z:0,radius:.55}));
+export function targetHit(origin,direction,target){
+ const x=origin.x-target.x,y=origin.y-target.y,z=origin.z-target.z;
+ const b=x*direction.x+y*direction.y+z*direction.z,c=x*x+y*y+z*z-target.radius**2,d=b*b-c;
+ if(d<0)return Infinity;const t=-b-Math.sqrt(d);return t>0?t:Infinity;
+}
 export function move(p,input,dt){
  const x=Math.max(-1,Math.min(1,Number(input.x)||0)),z=Math.max(-1,Math.min(1,Number(input.z)||0));
  const len=Math.max(1,Math.hypot(x,z));

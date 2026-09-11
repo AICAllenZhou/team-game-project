@@ -2,7 +2,7 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
-import {move,rayHit} from './simulation.mjs';
+import {move,rayHit,TRAINING_TARGETS,targetHit} from './simulation.mjs';
 const rooms=new Map(),sessions=new Map();
 const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0});
 const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -34,9 +34,11 @@ const server=http.createServer(async(req,res)=>{
    p.lastShot=now;p.ammo--;const direction={x:-Math.sin(p.gunYaw)*Math.cos(p.gunPitch),y:Math.sin(p.gunPitch),z:-Math.cos(p.gunYaw)*Math.cos(p.gunPitch)},origin={x:p.x+direction.x*.76+Math.cos(p.gunYaw)*.19,y:p.y+1.27+direction.y*.76,z:p.z+direction.z*.76-Math.sin(p.gunYaw)*.19};
    const offset=data.muzzleOffset;
    if(offset&&[offset.x,offset.y,offset.z].every(Number.isFinite)&&Math.hypot(offset.x,offset.y,offset.z)<=1.4){origin.x=p.x+offset.x;origin.y=p.y+1.5+offset.y;origin.z=p.z+offset.z;}
-   let victim=null,distance=70;for(const other of room.values()){if(other===p||other.hp<=0)continue;const d=rayHit(origin,direction,other);if(d<distance){victim=other;distance=d;}}
+   let victim=null,targetId=null,distance=70;
+   for(const target of TRAINING_TARGETS){const d=targetHit(origin,direction,target);if(d<distance){distance=d;targetId=target.id;}}
+   for(const other of room.values()){if(other===p||other.hp<=0)continue;const d=rayHit(origin,direction,other);if(d<distance){victim=other;distance=d;targetId=null;}}
    if(victim){victim.hp=Math.max(0,victim.hp-34);if(!victim.hp){victim.deaths++;p.kills++;victim.deadUntil=now+3000;victim.input={};}}
-   broadcast(room,'shot',{id:p.id,origin,direction,distance,hit:victim?.id||null});
+   broadcast(room,'shot',{id:p.id,origin,direction,distance,hit:victim?.id||null,targetId});
   }
   res.writeHead(204).end();return;
  }
@@ -45,7 +47,7 @@ const server=http.createServer(async(req,res)=>{
   p.stream?.end();res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive'});res.write(': connected\n\n');p.stream=res;
   req.on('close',()=>{if(p.stream===res)p.stream=null;});return;
  }
- const files={'/':'index.html','/index.html':'index.html','/game.js':'game.js','/weapon-pose.js':'weapon-pose.js','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
+ const files={'/':'index.html','/index.html':'index.html','/game.js':'game.js','/weapon-pose.js':'weapon-pose.js','/simulation.mjs':'simulation.mjs','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
  const file=files[url.pathname];if(!file||req.method!=='GET'){res.writeHead(404).end('Not found');return;}
  res.setHeader('Content-Type',file.endsWith('.html')?'text/html':file.endsWith('.css')?'text/css':'text/javascript');res.end(await readFile(fileURLToPath(new URL(file,import.meta.url))));
  }catch(e){console.error(e.message);if(!res.headersSent)res.writeHead(500);res.end();}
