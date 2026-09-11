@@ -28,7 +28,12 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/input'){p.input={x:data.x,z:data.z,yaw:data.yaw,pitch:data.pitch,jump:!!data.jump};p.gunYaw=Number.isFinite(data.gunYaw)?data.gunYaw:p.yaw;p.gunPitch=Math.max(-1.35,Math.min(1.35,Number.isFinite(data.gunPitch)?data.gunPitch:p.pitch));}
   else if(url.pathname==='/api/reload'&&p.hp>0&&!p.reloadUntil&&p.ammo<6)p.reloadUntil=now+1800;
   else if(url.pathname==='/api/fire'&&p.hp>0&&!p.reloadUntil&&p.ammo>0&&now-p.lastShot>=240){
+   // Use the displayed barrel pose at the instant of firing, not a stale input tick.
+   if(Number.isFinite(data.gunYaw))p.gunYaw=data.gunYaw;
+   if(Number.isFinite(data.gunPitch))p.gunPitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,data.gunPitch));
    p.lastShot=now;p.ammo--;const direction={x:-Math.sin(p.gunYaw)*Math.cos(p.gunPitch),y:Math.sin(p.gunPitch),z:-Math.cos(p.gunYaw)*Math.cos(p.gunPitch)},origin={x:p.x+direction.x*.76+Math.cos(p.gunYaw)*.19,y:p.y+1.27+direction.y*.76,z:p.z+direction.z*.76-Math.sin(p.gunYaw)*.19};
+   const offset=data.muzzleOffset;
+   if(offset&&[offset.x,offset.y,offset.z].every(Number.isFinite)&&Math.hypot(offset.x,offset.y,offset.z)<=1.4){origin.x=p.x+offset.x;origin.y=p.y+1.5+offset.y;origin.z=p.z+offset.z;}
    let victim=null,distance=70;for(const other of room.values()){if(other===p||other.hp<=0)continue;const d=rayHit(origin,direction,other);if(d<distance){victim=other;distance=d;}}
    if(victim){victim.hp=Math.max(0,victim.hp-34);if(!victim.hp){victim.deaths++;p.kills++;victim.deadUntil=now+3000;victim.input={};}}
    broadcast(room,'shot',{id:p.id,origin,direction,distance,hit:victim?.id||null});
@@ -40,7 +45,7 @@ const server=http.createServer(async(req,res)=>{
   p.stream?.end();res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive'});res.write(': connected\n\n');p.stream=res;
   req.on('close',()=>{if(p.stream===res)p.stream=null;});return;
  }
- const files={'/':'index.html','/index.html':'index.html','/game.js':'game.js','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
+ const files={'/':'index.html','/index.html':'index.html','/game.js':'game.js','/weapon-pose.js':'weapon-pose.js','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
  const file=files[url.pathname];if(!file||req.method!=='GET'){res.writeHead(404).end('Not found');return;}
  res.setHeader('Content-Type',file.endsWith('.html')?'text/html':file.endsWith('.css')?'text/css':'text/javascript');res.end(await readFile(fileURLToPath(new URL(file,import.meta.url))));
  }catch(e){console.error(e.message);if(!res.headersSent)res.writeHead(500);res.end();}
