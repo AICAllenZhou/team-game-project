@@ -12,6 +12,8 @@ Only the gun hand is visible, including on other players. Free aim allows 16 deg
 
 Three reactive bullseye targets stand in the center in both practice and multiplayer. Target hits use server hit detection in multiplayer and stop shots before they reach a player behind the target.
 
+The gun now rests on the horizontal centerline for equal left/right travel. A small portion of mouse movement always turns the camera, including when reversing across the free-aim area; RMB reduces this contribution further. Gun following uses local offsets to stay consistent across repeated full turns. Shots briefly split the rendered red/blue color channels near the screen edges, alongside the flash vignette.
+
 Install Node.js 22 or newer, then run `node server.mjs` and open `http://localhost:3000`. No package installation or build is needed. Players on the same network can open `http://YOUR-LAN-IP:3000` and enter the same room name. Each room supports 12 players. To play over the internet, deploy this Node server to a host supporting long-lived HTTP/SSE connections and share its HTTPS URL. Allow the server port through your firewall only as needed.
 
 Controls: WASD move, mouse free-aim/turn, left click fire, Q/E lean, R reload, Space jump, Tab scoreboard, Esc pause/release mouse. Desktop keyboard/mouse and WebGL are required. Click Enter again if the browser requires a second gesture to capture the mouse.

@@ -1,9 +1,24 @@
 import * as THREE from './vendor/three.module.js';
-import {placeWeapon,freeAimInput,stepRecoil} from './weapon-pose.js';
+import {placeWeapon,freeAimInput,followAim,stepRecoil} from './weapon-pose.js';
 import {move,TRAINING_TARGETS,targetHit} from './simulation.mjs';
 const $=id=>document.getElementById(id);
 const renderer=new THREE.WebGLRenderer({canvas:$('game'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.setClearColor(0xb7c8c7);
 const scene=new THREE.Scene();scene.fog=new THREE.Fog(0xb7c8c7,38,100);
+// A short edge-only RGB split on shots; the center stays clear for aiming.
+const shotBuffer=new THREE.WebGLRenderTarget(1,1,{depthBuffer:true});
+const colorShift=new THREE.ShaderMaterial({
+ uniforms:{frame:{value:shotBuffer.texture},strength:{value:0}},depthTest:false,depthWrite:false,
+ vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.0,1.0);}',
+ fragmentShader:`uniform sampler2D frame; uniform float strength; varying vec2 vUv;
+ void main(){vec2 radial=vUv-0.5;float edge=smoothstep(0.2,0.65,length(radial));
+ vec2 shift=radial*edge*strength*0.009;
+ vec3 color=vec3(texture2D(frame,clamp(vUv+shift,vec2(0.001),vec2(0.999))).r,
+ texture2D(frame,vUv).g,texture2D(frame,clamp(vUv-shift,vec2(0.001),vec2(0.999))).b);
+ gl_FragColor=vec4(color,1.0);
+ #include <colorspace_fragment>
+ }`
+});
+const screenScene=new THREE.Scene(),screenCamera=new THREE.Camera();screenScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),colorShift));
 const camera=new THREE.PerspectiveCamera(100,innerWidth/innerHeight,.05,160);camera.rotation.order='YXZ';scene.add(camera);
 scene.add(new THREE.HemisphereLight(0xe7f2ff,0x987143,2.7));const sun=new THREE.DirectionalLight(0xffe1ac,3.2);sun.position.set(-15,30,15);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-35,right:35,top:35,bottom:-35,far:90});sun.shadow.bias=-.001;scene.add(sun);
 const mat=(color)=>new THREE.MeshStandardMaterial({color,roughness:.85,flatShading:true});
@@ -43,7 +58,7 @@ const dummies=[cowboy(0xa57450),cowboy(0x6b9290),cowboy(0x9d7b8f)];dummies.forEa
 let token=null,id=null,events=null,online=false,joining=false,local={x:0,y:0,z:8,hp:100,ammo:6},yaw=0,pitch=0,freeX=0,freeY=0,gunYaw=0,gunPitch=0,recoil=0,kick=0,lastShot=0,reloading=0,vy=0,last=performance.now(),started=last,serverTime=0,receivedAt=0;
 const keys=new Set(),peers=new Map(),projectiles=[];let audio;
 let focusHeld=false,focusBlend=0;
-let mouseX=0,mouseY=0,lookYaw=0,lookPitch=0;
+let mouseX=0,mouseY=0,lookYaw=0,lookPitch=0,handYaw=0,handPitch=0;
 const wristSpring={angle:0,velocity:0};let wristTwist=0,flashLife=0;
 const predicted={x:0,y:0,z:8,vy:0,yaw:0,pitch:0};let predictionReady=false,correction=new THREE.Vector3();
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
@@ -73,7 +88,7 @@ $('play').onclick=async()=>{
  try{await $('game').requestPointerLock();}catch{$('error').textContent='Click Enter again to capture the mouse.';}
 };
 document.addEventListener('pointerlockchange',()=>{const locked=document.pointerLockElement===$('game');document.body.classList.toggle('playing',locked);keys.clear();focusHeld=false;mouseX=mouseY=0;if(locked)$('play').innerHTML='RESUME <span>↗</span>';});
-document.addEventListener('mousemove',e=>{if(document.pointerLockElement!==$('game'))return;mouseX+=e.movementX;mouseY+=e.movementY;});
+document.addEventListener('mousemove',e=>{if(document.pointerLockElement!==$('game'))return;focusHeld=!!(e.buttons&2);mouseX+=e.movementX;mouseY+=e.movementY;});
 window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockElement===$('game')){e.preventDefault();focusHeld=true;}});
 window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;});
 $('game').addEventListener('contextmenu',e=>e.preventDefault());
@@ -91,7 +106,7 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  focusBlend+=(Number(focusHeld&&locked&&local.hp>0)-focusBlend)*(1-Math.exp(-12*dt));
  // Mouse events accumulate; apply them once per frame, then smooth head rotation.
  if(mouseX||mouseY){const aim={freeX,freeY,lookYaw,lookPitch};freeAimInput(aim,mouseX,mouseY,focusBlend);({freeX,freeY,lookYaw,lookPitch}=aim);mouseX=mouseY=0;}
- yaw+=(lookYaw-yaw)*(1-Math.exp(-24*dt));pitch+=(lookPitch-pitch)*(1-Math.exp(-24*dt));
+ const aimPose={yaw,pitch,lookYaw,lookPitch,freeX,freeY,handYaw,handPitch};followAim(aimPose,dt);({yaw,pitch,handYaw,handPitch}=aimPose);
  const focusLimitX=.28+.28*focusBlend,focusLimitY=.2+.18*focusBlend;
  freeX+=(clamp(freeX,-focusLimitX,focusLimitX)-freeX)*(1-Math.exp(-12*dt));
  freeY+=(clamp(freeY,-focusLimitY,focusLimitY)-freeY)*(1-Math.exp(-12*dt));
@@ -99,10 +114,10 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  if(!online&&locked){let x=Number(keys.has('KeyD'))-Number(keys.has('KeyA')),z=Number(keys.has('KeyS'))-Number(keys.has('KeyW')),len=Math.max(1,Math.hypot(x,z));local.x=THREE.MathUtils.clamp(local.x+(x*Math.cos(yaw)+z*Math.sin(yaw))/len*4.5*dt,-27,27);local.z=THREE.MathUtils.clamp(local.z+(-x*Math.sin(yaw)+z*Math.cos(yaw))/len*4.5*dt,-27,27);if(keys.has('Space')&&local.y===0)vy=5;vy-=15*dt;local.y=Math.max(0,local.y+vy*dt);if(!local.y)vy=0;}
  if(reloading&&now>=reloading){reloading=0;local.ammo=6;$('ammo').textContent=6;}
  const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k)),lean=locked?(Number(keys.has('KeyE'))-Number(keys.has('KeyQ'))):0,bob=moving?Math.sin(t*9)*.025:Math.sin(t*1.8)*.004;
- const targetGunYaw=yaw-freeX,targetGunPitch=clamp(pitch-freeY,-1.35,1.35),follow=1-Math.exp(-11*dt);gunYaw+=angleDelta(gunYaw,targetGunYaw)*follow;gunPitch+=angleDelta(gunPitch,targetGunPitch)*follow;
+ gunYaw=yaw+handYaw;gunPitch=pitch+handPitch;
  const view=online&&predictionReady?predicted:local;camera.position.set(view.x,view.y+1.5+bob,view.z);stepRecoil(wristSpring,dt);wristTwist*=Math.exp(-10*dt);kick*=Math.exp(-13*dt);camera.rotation.set(pitch+kick,yaw,moving?Math.sin(t*4.5)*.008:0,'YXZ');
  const reloadEnd=online?local.reloadUntil:reloading,clock=online?serverTime+now-receivedAt:now;
- placeWeapon(rig,{yaw:angleDelta(yaw,gunYaw),pitch:gunPitch-pitch,bob,lean,recoil:0,reload:!!reloadEnd});
+ placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd});
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');
  flashLife=Math.max(0,flashLife-dt);flash.visible=flashLife>0;muzzleLight.intensity=12*flashLife/.075;
  shotVignette.style.opacity=String(Math.max(flashLife/.075*.65,Math.max(0,wristSpring.angle)*.14));
@@ -111,6 +126,9 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  $('notice').textContent=local.hp<=0?`BACK IN ${Math.max(1,Math.ceil((local.deadUntil-clock)/1000))}`:'';
  for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(new THREE.Vector3(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;}}
  for(let i=projectiles.length-1;i>=0;i--){const projectile=projectiles[i],step=Math.min(260*dt,projectile.distance-projectile.travel);projectile.round.position.addScaledVector(projectile.direction,step);projectile.travel+=step;if(projectile.travel>=projectile.distance){if(projectile.targetId)targets.get(projectile.targetId).hitAt=t;scene.remove(projectile.round);projectile.round.geometry.dispose();projectile.round.material.dispose();projectiles.splice(i,1);}}
- $('time').textContent=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;renderer.render(scene,camera);
+ $('time').textContent=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;
+ colorShift.uniforms.strength.value=Math.max(0,1-(now-lastShot)/160);
+ if(colorShift.uniforms.strength.value>0){renderer.setRenderTarget(shotBuffer);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.render(screenScene,screenCamera);}else renderer.render(scene,camera);
 }
-window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});renderer.setSize(innerWidth,innerHeight);camera.position.set(0,1.5,8);requestAnimationFrame(frame);
+function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);const size=renderer.getDrawingBufferSize(new THREE.Vector2());shotBuffer.setSize(size.x,size.y);}
+window.addEventListener('resize',resize);resize();camera.position.set(0,1.5,8);requestAnimationFrame(frame);
