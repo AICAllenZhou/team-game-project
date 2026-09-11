@@ -2,7 +2,7 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
-import {move,rayHit,TRAINING_TARGETS,targetHit} from './simulation.mjs';
+import {move,traceShot} from './simulation.mjs';
 const rooms=new Map(),sessions=new Map();
 const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0});
 const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -34,11 +34,10 @@ const server=http.createServer(async(req,res)=>{
    p.lastShot=now;p.ammo--;const direction={x:-Math.sin(p.gunYaw)*Math.cos(p.gunPitch),y:Math.sin(p.gunPitch),z:-Math.cos(p.gunYaw)*Math.cos(p.gunPitch)},origin={x:p.x+direction.x*.76+Math.cos(p.gunYaw)*.19,y:p.y+1.27+direction.y*.76,z:p.z+direction.z*.76-Math.sin(p.gunYaw)*.19};
    const offset=data.muzzleOffset;
    if(offset&&[offset.x,offset.y,offset.z].every(Number.isFinite)&&Math.hypot(offset.x,offset.y,offset.z)<=1.4){origin.x=p.x+offset.x;origin.y=p.y+1.5+offset.y;origin.z=p.z+offset.z;}
-   let victim=null,targetId=null,distance=70;
-   for(const target of TRAINING_TARGETS){const d=targetHit(origin,direction,target);if(d<distance){distance=d;targetId=target.id;}}
-   for(const other of room.values()){if(other===p||other.hp<=0)continue;const d=rayHit(origin,direction,other);if(d<distance){victim=other;distance=d;targetId=null;}}
+   const result=traceShot(origin,direction,[...room.values()].filter(other=>other!==p));
+   const victim=result.hit?room.get(result.hit):null;
    if(victim){victim.hp=Math.max(0,victim.hp-34);if(!victim.hp){victim.deaths++;p.kills++;victim.deadUntil=now+3000;victim.input={};}}
-   broadcast(room,'shot',{id:p.id,origin,direction,distance,hit:victim?.id||null,targetId});
+   broadcast(room,'shot',{id:p.id,origin,direction,...result,shotId:typeof data.shotId==='string'?data.shotId.slice(0,64):null});
   }
   res.writeHead(204).end();return;
  }

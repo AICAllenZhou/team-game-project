@@ -14,6 +14,10 @@ Three reactive bullseye targets stand in the center in both practice and multipl
 
 The gun now rests on the horizontal centerline for equal left/right travel. A small portion of mouse movement always turns the camera, including when reversing across the free-aim area; RMB reduces this contribution further. Gun following uses local offsets to stay consistent across repeated full turns. Shots briefly split the rendered red/blue color channels near the screen edges, alongside the flash vignette.
 
+Shots launch a visible glowing round immediately and leave a fading marker at the actual impact point on the floor, fences, stands, targets, or players. Sky misses have no marker. The visible flight uses elapsed time and lasts at least 50 ms for close shots; multiplayer confirms the impact before displaying its marker. The wrist has a stronger upward impulse with spring recovery.
+
+Mouse sensitivity now transitions smoothly at the edge of free aim. Walking has a level camera, with bob applied only to the gun. Small server timing differences no longer pull the player back every update; larger position corrections are speed-limited and the displayed position is smoothed. Input requests are serialized to avoid stale movement updates arriving out of order.
+
 Install Node.js 22 or newer, then run `node server.mjs` and open `http://localhost:3000`. No package installation or build is needed. Players on the same network can open `http://YOUR-LAN-IP:3000` and enter the same room name. Each room supports 12 players. To play over the internet, deploy this Node server to a host supporting long-lived HTTP/SSE connections and share its HTTPS URL. Allow the server port through your firewall only as needed.
 
 Controls: WASD move, mouse free-aim/turn, left click fire, Q/E lean, R reload, Space jump, Tab scoreboard, Esc pause/release mouse. Desktop keyboard/mouse and WebGL are required. Click Enter again if the browser requires a second gesture to capture the mouse.

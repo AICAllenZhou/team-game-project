@@ -1,6 +1,6 @@
 import * as THREE from './vendor/three.module.js';
-import {placeWeapon,freeAimInput,followAim,stepRecoil} from './weapon-pose.js';
-import {move,TRAINING_TARGETS,targetHit} from './simulation.mjs';
+import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil} from './weapon-pose.js';
+import {move,TRAINING_TARGETS,traceShot,PROJECTILE_SPEED,projectileProgress,predictionCorrection,settlePrediction} from './simulation.mjs';
 const $=id=>document.getElementById(id);
 const renderer=new THREE.WebGLRenderer({canvas:$('game'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.setClearColor(0xb7c8c7);
 const scene=new THREE.Scene();scene.fog=new THREE.Fog(0xb7c8c7,38,100);
@@ -57,20 +57,46 @@ for(const target of TRAINING_TARGETS){
 const dummies=[cowboy(0xa57450),cowboy(0x6b9290),cowboy(0x9d7b8f)];dummies.forEach((g,i)=>g.position.set((i-1)*5,0,-9-Math.abs(i-1)*3));
 let token=null,id=null,events=null,online=false,joining=false,local={x:0,y:0,z:8,hp:100,ammo:6},yaw=0,pitch=0,freeX=0,freeY=0,gunYaw=0,gunPitch=0,recoil=0,kick=0,lastShot=0,reloading=0,vy=0,last=performance.now(),started=last,serverTime=0,receivedAt=0;
 const keys=new Set(),peers=new Map(),projectiles=[];let audio;
+const pendingShots=new Map(),impacts=[];let shotSequence=0;
+const roundGeometry=new THREE.CapsuleGeometry(.045,.4,3,8),roundMaterial=new THREE.MeshBasicMaterial({color:0xffedb0});
+const glowMaterial=new THREE.MeshBasicMaterial({color:0xffb744,transparent:true,opacity:.22,depthWrite:false});
+// A single reusable billboard icon is placed in world space at each impact.
+const markerCanvas=document.createElement('canvas');markerCanvas.width=markerCanvas.height=64;
+const markerContext=markerCanvas.getContext('2d');markerContext.lineCap='round';
+for(const [width,color] of [[9,'#30200d'],[4,'#ffffff']]){markerContext.strokeStyle=color;markerContext.lineWidth=width;
+ for(const [x,y] of [[-1,-1],[-1,1],[1,-1],[1,1]]){markerContext.beginPath();markerContext.moveTo(32+x*8,32+y*8);markerContext.lineTo(32+x*22,32+y*22);markerContext.stroke();}}
+const impactTexture=new THREE.CanvasTexture(markerCanvas);impactTexture.colorSpace=THREE.SRGBColorSpace;
 let focusHeld=false,focusBlend=0;
 let mouseX=0,mouseY=0,lookYaw=0,lookPitch=0,handYaw=0,handPitch=0;
 const wristSpring={angle:0,velocity:0};let wristTwist=0,flashLife=0;
-const predicted={x:0,y:0,z:8,vy:0,yaw:0,pitch:0};let predictionReady=false,correction=new THREE.Vector3();
+const predicted={x:0,y:0,z:8,vy:0,yaw:0,pitch:0};let predictionReady=false,correction={x:0,z:0};
+const smoothPosition=new THREE.Vector3(0,1.5,8);let walkBlend=0,walkPhase=0,inputInFlight=false;
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
 const angleDelta=(from,to)=>Math.atan2(Math.sin(to-from),Math.cos(to-from));
 const gunDirection=()=>{gun.updateWorldMatrix(true,false);return new THREE.Vector3(0,0,-1).transformDirection(gun.matrixWorld);};
 function muzzlePosition(){return gun.localToWorld(new THREE.Vector3(0,.025,-.52));}
 function sound(){try{audio??=new AudioContext();audio.resume();const n=audio.createBufferSource(),b=audio.createBuffer(1,audio.sampleRate*.14,audio.sampleRate),a=b.getChannelData(0);for(let i=0;i<a.length;i++)a[i]=(Math.random()*2-1)*(1-i/a.length)**2.1;n.buffer=b;const filter=audio.createBiquadFilter();filter.type='lowpass';filter.frequency.value=1150;const gain=audio.createGain();gain.gain.value=.23;n.connect(filter).connect(gain).connect(audio.destination);n.start();}catch{}}
 async function post(path,data={}){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,...data})});if(!r.ok)throw Error(await r.text()||'Connection lost');return r.status===204?null:r.json();}
-function shotEffect(s){const direction=new THREE.Vector3(s.direction.x,s.direction.y,s.direction.z).normalize(),round=mesh(new THREE.CapsuleGeometry(.025,.22,2,6),new THREE.MeshBasicMaterial({color:0xffd27a}),scene,s.origin.x,s.origin.y,s.origin.z);round.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction);projectiles.push({round,direction,distance:s.distance,travel:0,targetId:s.targetId});if((s.id===id||s.id==='local')&&(s.hit||s.targetId)){$('hit').style.opacity=1;setTimeout(()=>$('hit').style.opacity=0,130);}}
-function applyState(s){serverTime=s.time;receivedAt=performance.now();const mine=s.players.find(p=>p.id===id);if(!mine)return;
- if(!predictionReady||(!local.hp&&mine.hp>0)||Math.hypot(predicted.x-mine.x,predicted.z-mine.z)>4){Object.assign(predicted,{x:mine.x,y:mine.y,z:mine.z,vy:0});correction.set(0,0,0);predictionReady=true;}
- else correction.set(mine.x-predicted.x,mine.y-predicted.y,mine.z-predicted.z);
+function shotEffect(s,predicted=false){
+ const existing=s.id===id&&s.shotId?pendingShots.get(s.shotId):null;
+ if(existing&&!predicted){existing.result=s;existing.confirmed=true;return;}
+ const direction=new THREE.Vector3(s.direction.x,s.direction.y,s.direction.z).normalize(),origin=new THREE.Vector3(s.origin.x,s.origin.y,s.origin.z);
+ const round=new THREE.Mesh(roundGeometry,roundMaterial);round.position.copy(origin);round.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction);scene.add(round);
+ const glow=new THREE.Mesh(roundGeometry,glowMaterial);glow.scale.set(1.8,1.15,1.8);round.add(glow);
+ const flight={round,direction,origin,distance:s.distance,duration:Math.max(.05,s.distance/PROJECTILE_SPEED),born:performance.now(),result:s,confirmed:!predicted};
+ projectiles.push(flight);if(predicted)pendingShots.set(s.shotId,flight);
+}
+function impactEffect(result,now){
+ if(!result.surface)return;
+ const material=new THREE.SpriteMaterial({map:impactTexture,color:result.hit?0xff7958:result.targetId?0xffd77b:0xfff1d4,transparent:true,depthWrite:false});
+ const marker=new THREE.Sprite(material);marker.position.set(result.point.x,result.point.y,result.point.z);
+ if(result.normal)marker.position.addScaledVector(new THREE.Vector3(result.normal.x,result.normal.y,result.normal.z),.025);
+ const size=clamp(marker.position.distanceTo(camera.position)*.018,.14,.48);marker.scale.setScalar(size);scene.add(marker);impacts.push({marker,born:now});
+ if(result.targetId&&targets.has(result.targetId))targets.get(result.targetId).hitAt=(now-started)/1000;
+}
+function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt=performance.now();const mine=s.players.find(p=>p.id===id);if(!mine)return;
+ if(!predictionReady||(!local.hp&&mine.hp>0)){Object.assign(predicted,{x:mine.x,y:mine.y,z:mine.z,vy:0});correction={x:0,z:0};smoothPosition.set(mine.x,mine.y+1.5,mine.z);predictionReady=true;}
+ else correction=predictionCorrection(predicted,mine);
  local=mine;$('health').textContent=mine.hp;$('ammo').textContent=mine.ammo;$('connection').textContent=`${s.players.length} / 12 • ${$('room').value.toUpperCase()}`;
  const ids=new Set();for(const p of s.players){if(p.id===id)continue;ids.add(p.id);if(!peers.has(p.id))peers.set(p.id,cowboy(p.color));const g=peers.get(p.id);g.userData.target=p;g.visible=p.hp>0;g.userData.rightHand.rotation.set(p.gunPitch??0,angleDelta(p.yaw,p.gunYaw??p.yaw),p.reloadUntil?-.4:0,'YXZ');}
  for(const [key,g] of peers)if(!ids.has(key)){scene.remove(g);peers.delete(key);}
@@ -98,10 +124,13 @@ function reload(){if(online){post('reload').catch(networkError);}else if(!reload
 function networkError(e){$('connection').textContent='DISCONNECTED';$('error').textContent=e.message+' — reload the page to rejoin.';document.exitPointerLock();online=false;token=null;events?.close();}
 window.addEventListener('mousedown',e=>{if(e.button!==0||!document.pointerLockElement||local.hp<=0)return;const now=performance.now();if(now-lastShot<240||local.reloadUntil||reloading)return;if(!local.ammo){reload();return;}
  const direction=gunDirection(),origin=muzzlePosition();
- lastShot=now;wristSpring.velocity+=9;wristSpring.angle=Math.min(.8,wristSpring.angle+.065);wristTwist+=(Math.random()-.35)*.07;kick+=.065;sound();flashLife=.075;flash.visible=true;flash.rotation.z=Math.random()*Math.PI;flash.scale.setScalar(.85+Math.random()*.4);muzzleLight.intensity=12;
- if(online)post('fire',{gunYaw:Math.atan2(-direction.x,-direction.z),gunPitch:Math.asin(clamp(direction.y,-1,1)),muzzleOffset:origin.clone().sub(camera.position)}).catch(networkError);
- else{local.ammo--;$('ammo').textContent=local.ammo;const ray=new THREE.Raycaster(origin,direction);const hits=ray.intersectObjects(dummies,true);let distance=hits[0]?.distance||60,targetId=null;for(const target of TRAINING_TARGETS){const d=targetHit(origin,direction,target);if(d<distance){distance=d;targetId=target.id;}}shotEffect({id:'local',origin,direction,distance,targetId,hit:!targetId&&hits.length?'dummy':null});}});
-setInterval(()=>{if(!online)return;const active=!!document.pointerLockElement;post('input',{x:active?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:active?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,gunYaw,gunPitch,jump:active&&keys.has('Space')}).catch(networkError);},50);
+ lastShot=now;kickRecoil(wristSpring);wristTwist+=(Math.random()-.35)*.09;kick=Math.min(.2,kick+.095);sound();flashLife=.075;flash.visible=true;flash.rotation.z=Math.random()*Math.PI;flash.scale.setScalar(.85+Math.random()*.4);muzzleLight.intensity=12;
+ const candidates=online?[...peers.values()].map(g=>g.userData.target).filter(Boolean):dummies.map((g,i)=>({id:`dummy-${i}`,x:g.position.x,y:g.position.y,z:g.position.z,hp:100}));
+ const result=traceShot(origin,direction,candidates),shotId=String(++shotSequence);
+ shotEffect({id:online?id:'local',shotId,origin,direction,...result},online);
+ if(online)post('fire',{shotId,gunYaw:Math.atan2(-direction.x,-direction.z),gunPitch:Math.asin(clamp(direction.y,-1,1)),muzzleOffset:origin.clone().sub(camera.position)}).catch(networkError);
+ else{local.ammo--;$('ammo').textContent=local.ammo;}});
+setInterval(()=>{if(!online||inputInFlight)return;inputInFlight=true;const active=!!document.pointerLockElement;post('input',{x:active?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:active?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,gunYaw,gunPitch,jump:active&&keys.has('Space')}).catch(networkError).finally(()=>{inputInFlight=false;});},50);
 function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.05);last=now;const t=(now-started)/1000,locked=!!document.pointerLockElement;
  focusBlend+=(Number(focusHeld&&locked&&local.hp>0)-focusBlend)*(1-Math.exp(-12*dt));
  // Mouse events accumulate; apply them once per frame, then smooth head rotation.
@@ -110,12 +139,13 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  const focusLimitX=.28+.28*focusBlend,focusLimitY=.2+.18*focusBlend;
  freeX+=(clamp(freeX,-focusLimitX,focusLimitX)-freeX)*(1-Math.exp(-12*dt));
  freeY+=(clamp(freeY,-focusLimitY,focusLimitY)-freeY)*(1-Math.exp(-12*dt));
- if(online&&predictionReady){move(predicted,{x:locked&&local.hp>0?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:locked&&local.hp>0?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,jump:locked&&local.hp>0&&keys.has('Space')},dt);const amount=1-Math.exp(-7*dt);predicted.x+=correction.x*amount;predicted.z+=correction.z*amount;correction.multiplyScalar(1-amount);}
+ if(online&&predictionReady){move(predicted,{x:locked&&local.hp>0?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:locked&&local.hp>0?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,jump:locked&&local.hp>0&&keys.has('Space')},dt);settlePrediction(predicted,correction,dt);}
  if(!online&&locked){let x=Number(keys.has('KeyD'))-Number(keys.has('KeyA')),z=Number(keys.has('KeyS'))-Number(keys.has('KeyW')),len=Math.max(1,Math.hypot(x,z));local.x=THREE.MathUtils.clamp(local.x+(x*Math.cos(yaw)+z*Math.sin(yaw))/len*4.5*dt,-27,27);local.z=THREE.MathUtils.clamp(local.z+(-x*Math.sin(yaw)+z*Math.cos(yaw))/len*4.5*dt,-27,27);if(keys.has('Space')&&local.y===0)vy=5;vy-=15*dt;local.y=Math.max(0,local.y+vy*dt);if(!local.y)vy=0;}
  if(reloading&&now>=reloading){reloading=0;local.ammo=6;$('ammo').textContent=6;}
- const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k)),lean=locked?(Number(keys.has('KeyE'))-Number(keys.has('KeyQ'))):0,bob=moving?Math.sin(t*9)*.025:Math.sin(t*1.8)*.004;
+ const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k)),lean=locked?(Number(keys.has('KeyE'))-Number(keys.has('KeyQ'))):0;
+ walkBlend+=(Number(moving)-walkBlend)*(1-Math.exp(-10*dt));walkPhase+=dt*9*walkBlend;const bob=Math.sin(walkPhase)*.025*walkBlend;
  gunYaw=yaw+handYaw;gunPitch=pitch+handPitch;
- const view=online&&predictionReady?predicted:local;camera.position.set(view.x,view.y+1.5+bob,view.z);stepRecoil(wristSpring,dt);wristTwist*=Math.exp(-10*dt);kick*=Math.exp(-13*dt);camera.rotation.set(pitch+kick,yaw,moving?Math.sin(t*4.5)*.008:0,'YXZ');
+ const view=online&&predictionReady?predicted:local;smoothPosition.lerp(new THREE.Vector3(view.x,view.y+1.5,view.z),1-Math.exp(-35*dt));camera.position.copy(smoothPosition);stepRecoil(wristSpring,dt);wristTwist*=Math.exp(-10*dt);kick*=Math.exp(-13*dt);camera.rotation.set(pitch+kick,yaw,0,'YXZ');
  const reloadEnd=online?local.reloadUntil:reloading,clock=online?serverTime+now-receivedAt:now;
  placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd});
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');
@@ -125,7 +155,11 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  $('reload').textContent=reloadEnd?'RELOADING':'R · RELOAD';
  $('notice').textContent=local.hp<=0?`BACK IN ${Math.max(1,Math.ceil((local.deadUntil-clock)/1000))}`:'';
  for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(new THREE.Vector3(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;}}
- for(let i=projectiles.length-1;i>=0;i--){const projectile=projectiles[i],step=Math.min(260*dt,projectile.distance-projectile.travel);projectile.round.position.addScaledVector(projectile.direction,step);projectile.travel+=step;if(projectile.travel>=projectile.distance){if(projectile.targetId)targets.get(projectile.targetId).hitAt=t;scene.remove(projectile.round);projectile.round.geometry.dispose();projectile.round.material.dispose();projectiles.splice(i,1);}}
+ for(let i=projectiles.length-1;i>=0;i--){const p=projectiles[i],age=(now-p.born)/1000,progress=projectileProgress(p.distance,age);
+  p.round.position.copy(p.origin).addScaledVector(p.direction,p.distance*progress);p.round.visible=progress<1;
+  if(progress===1&&(p.confirmed||age>2)){if(p.confirmed)impactEffect(p.result,now);scene.remove(p.round);if(pendingShots.get(p.result.shotId)===p)pendingShots.delete(p.result.shotId);projectiles.splice(i,1);}
+ }
+ for(let i=impacts.length-1;i>=0;i--){const hit=impacts[i],age=(now-hit.born)/1000;hit.marker.material.opacity=1-clamp((age-.15)/.5,0,1);if(age>=.65){scene.remove(hit.marker);hit.marker.material.dispose();impacts.splice(i,1);}}
  $('time').textContent=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;
  colorShift.uniforms.strength.value=Math.max(0,1-(now-lastShot)/160);
  if(colorShift.uniforms.strength.value>0){renderer.setRenderTarget(shotBuffer);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.render(screenScene,screenCamera);}else renderer.render(scene,camera);

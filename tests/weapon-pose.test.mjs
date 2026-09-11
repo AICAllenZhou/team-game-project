@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Group,Vector3} from '../vendor/three.module.js';
-import {placeWeapon,WEAPON_REACH,freeAimInput,followAim,stepRecoil} from '../weapon-pose.js';
+import {placeWeapon,WEAPON_REACH,freeAimInput,followAim,stepRecoil,kickRecoil} from '../weapon-pose.js';
 
 test('weapon reach stays fixed through extreme turns, walking, recoil and reload',()=>{
  const camera=new Group(),rig=new Group(),left=new Group();camera.add(rig,left);left.position.set(-.4,-.42,-.58);
@@ -50,8 +50,15 @@ test('releasing focus does not manufacture camera movement',()=>{
  assert.equal(state.lookYaw,1);assert.equal(state.lookPitch,.2);
 });
 test('wrist recoil kicks upward and recovers at multiple frame rates',()=>{
- for(const hz of [30,60,144]){const s={angle:.065,velocity:9};let peak=0;
+ for(const hz of [30,60,144]){const s={angle:0,velocity:0};kickRecoil(s);let peak=0;
  for(let i=0;i<hz*2;i++){stepRecoil(s,1/hz);peak=Math.max(peak,s.angle);}
- assert.ok(peak>.25&&peak<.65);assert.ok(Math.abs(s.angle)<.001);
+ assert.ok(peak>.45&&peak<.9);assert.ok(Math.abs(s.angle)<.001);
+ }
+});
+
+test('camera sensitivity changes smoothly through the free-aim edge',()=>{
+ let previousGain=null;
+ for(let free=.15;free<.34;free+=.002){const s={freeX:Math.min(.279,free),freeY:0,lookYaw:0,lookPitch:0};freeAimInput(s,1,0,0);const gain=-s.lookYaw;
+ if(previousGain!==null)assert.ok(Math.abs(gain-previousGain)<.0001);previousGain=gain;
  }
 });
