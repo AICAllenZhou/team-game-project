@@ -4,11 +4,11 @@ A collaborative game project.
 
 ## Team responsibilities
 
-- Harvey: Game logic
+- Hervongle: Game logic
 - Project lead: Walls and related environment work
-- Kinson: Character design
-- Brian: Web development
-- Brewster: Map design
+- jingston: Character design
+- brain : Web development
+- rooster: Map design
 
 ## Collaboration
 
