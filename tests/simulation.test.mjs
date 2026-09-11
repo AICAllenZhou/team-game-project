@@ -31,3 +31,8 @@ test('packet timing jitter does not pull the walking player back',()=>{
  assert.ok(Math.abs(p.z+4.5)<1e-8);
  const before=p.x,error=predictionCorrection(p,{x:4,z:p.z});settlePrediction(p,error,1/60);assert.ok(p.x>before&&p.x-before<=.75/60+1e-9);
 });
+
+test('crossing the reconciliation threshold does not switch on a sudden correction',()=>{
+ const p={x:0,z:0},below=predictionCorrection(p,{x:.299,z:0}),above=predictionCorrection(p,{x:.301,z:0});
+ assert.equal(below.x,0);settlePrediction(p,above,1/60);assert.ok(p.x>=0&&p.x<.00001);
+});

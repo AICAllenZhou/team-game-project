@@ -1,5 +1,5 @@
 import * as THREE from './vendor/three.module.js';
-import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil} from './weapon-pose.js';
+import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil,hitMarkerLayout} from './weapon-pose.js';
 import {move,TRAINING_TARGETS,traceShot,PROJECTILE_SPEED,projectileProgress,predictionCorrection,settlePrediction} from './simulation.mjs';
 const $=id=>document.getElementById(id);
 const renderer=new THREE.WebGLRenderer({canvas:$('game'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.setClearColor(0xb7c8c7);
@@ -60,15 +60,10 @@ const keys=new Set(),peers=new Map(),projectiles=[];let audio;
 const pendingShots=new Map(),impacts=[];let shotSequence=0;
 const roundGeometry=new THREE.CapsuleGeometry(.045,.4,3,8),roundMaterial=new THREE.MeshBasicMaterial({color:0xffedb0});
 const glowMaterial=new THREE.MeshBasicMaterial({color:0xffb744,transparent:true,opacity:.22,depthWrite:false});
-// A single reusable billboard icon is placed in world space at each impact.
-const markerCanvas=document.createElement('canvas');markerCanvas.width=markerCanvas.height=64;
-const markerContext=markerCanvas.getContext('2d');markerContext.lineCap='round';
-for(const [width,color] of [[9,'#30200d'],[4,'#ffffff']]){markerContext.strokeStyle=color;markerContext.lineWidth=width;
- for(const [x,y] of [[-1,-1],[-1,1],[1,-1],[1,1]]){markerContext.beginPath();markerContext.moveTo(32+x*8,32+y*8);markerContext.lineTo(32+x*22,32+y*22);markerContext.stroke();}}
-const impactTexture=new THREE.CanvasTexture(markerCanvas);impactTexture.colorSpace=THREE.SRGBColorSpace;
 let focusHeld=false,focusBlend=0;
 let mouseX=0,mouseY=0,lookYaw=0,lookPitch=0,handYaw=0,handPitch=0;
 const wristSpring={angle:0,velocity:0};let wristTwist=0,flashLife=0;
+const cameraSpring={angle:0,velocity:0};
 const predicted={x:0,y:0,z:8,vy:0,yaw:0,pitch:0};let predictionReady=false,correction={x:0,z:0};
 const smoothPosition=new THREE.Vector3(0,1.5,8);let walkBlend=0,walkPhase=0,inputInFlight=false;
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
@@ -87,12 +82,15 @@ function shotEffect(s,predicted=false){
  projectiles.push(flight);if(predicted)pendingShots.set(s.shotId,flight);
 }
 function impactEffect(result,now){
- if(!result.surface)return;
- const material=new THREE.SpriteMaterial({map:impactTexture,color:result.hit?0xff7958:result.targetId?0xffd77b:0xfff1d4,transparent:true,depthWrite:false});
- const marker=new THREE.Sprite(material);marker.position.set(result.point.x,result.point.y,result.point.z);
- if(result.normal)marker.position.addScaledVector(new THREE.Vector3(result.normal.x,result.normal.y,result.normal.z),.025);
- const size=clamp(marker.position.distanceTo(camera.position)*.018,.14,.48);marker.scale.setScalar(size);scene.add(marker);impacts.push({marker,born:now});
  if(result.targetId&&targets.has(result.targetId))targets.get(result.targetId).hitAt=(now-started)/1000;
+ if(!result.surface||(result.id!==id&&result.id!=='local'))return;
+ camera.updateMatrixWorld(true);
+ const point=new THREE.Vector3(result.point.x,result.point.y,result.point.z),projected=point.clone().project(camera);
+ const ahead=point.sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3()))>0;
+ const x=ahead?clamp(projected.x,-1,1):0,y=ahead?clamp(projected.y,-1,1):0;
+ const marker=document.createElement('div');marker.className='hud-impact';marker.textContent='×';marker.setAttribute('aria-hidden','true');
+ marker.style.setProperty('--impact-color',result.hit?'#ff7958':result.targetId?'#ffd65e':'#ffffff');
+ document.body.append(marker);impacts.push({marker,born:now,x,y});
 }
 function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt=performance.now();const mine=s.players.find(p=>p.id===id);if(!mine)return;
  if(!predictionReady||(!local.hp&&mine.hp>0)){Object.assign(predicted,{x:mine.x,y:mine.y,z:mine.z,vy:0});correction={x:0,z:0};smoothPosition.set(mine.x,mine.y+1.5,mine.z);predictionReady=true;}
@@ -124,7 +122,7 @@ function reload(){if(online){post('reload').catch(networkError);}else if(!reload
 function networkError(e){$('connection').textContent='DISCONNECTED';$('error').textContent=e.message+' — reload the page to rejoin.';document.exitPointerLock();online=false;token=null;events?.close();}
 window.addEventListener('mousedown',e=>{if(e.button!==0||!document.pointerLockElement||local.hp<=0)return;const now=performance.now();if(now-lastShot<240||local.reloadUntil||reloading)return;if(!local.ammo){reload();return;}
  const direction=gunDirection(),origin=muzzlePosition();
- lastShot=now;kickRecoil(wristSpring);wristTwist+=(Math.random()-.35)*.09;kick=Math.min(.2,kick+.095);sound();flashLife=.075;flash.visible=true;flash.rotation.z=Math.random()*Math.PI;flash.scale.setScalar(.85+Math.random()*.4);muzzleLight.intensity=12;
+ lastShot=now;kickRecoil(wristSpring);wristTwist+=(Math.random()-.35)*.09;cameraSpring.velocity=Math.min(2,cameraSpring.velocity+1.1);sound();flashLife=.075;flash.visible=true;flash.rotation.z=Math.random()*Math.PI;flash.scale.setScalar(.85+Math.random()*.4);muzzleLight.intensity=12;
  const candidates=online?[...peers.values()].map(g=>g.userData.target).filter(Boolean):dummies.map((g,i)=>({id:`dummy-${i}`,x:g.position.x,y:g.position.y,z:g.position.z,hp:100}));
  const result=traceShot(origin,direction,candidates),shotId=String(++shotSequence);
  shotEffect({id:online?id:'local',shotId,origin,direction,...result},online);
@@ -145,7 +143,7 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k)),lean=locked?(Number(keys.has('KeyE'))-Number(keys.has('KeyQ'))):0;
  walkBlend+=(Number(moving)-walkBlend)*(1-Math.exp(-10*dt));walkPhase+=dt*9*walkBlend;const bob=Math.sin(walkPhase)*.025*walkBlend;
  gunYaw=yaw+handYaw;gunPitch=pitch+handPitch;
- const view=online&&predictionReady?predicted:local;smoothPosition.lerp(new THREE.Vector3(view.x,view.y+1.5,view.z),1-Math.exp(-35*dt));camera.position.copy(smoothPosition);stepRecoil(wristSpring,dt);wristTwist*=Math.exp(-10*dt);kick*=Math.exp(-13*dt);camera.rotation.set(pitch+kick,yaw,0,'YXZ');
+ const view=online&&predictionReady?predicted:local;smoothPosition.lerp(new THREE.Vector3(view.x,view.y+1.5,view.z),1-Math.exp(-35*dt));camera.position.copy(smoothPosition);stepRecoil(wristSpring,dt);stepRecoil(cameraSpring,dt);wristTwist*=Math.exp(-10*dt);camera.rotation.set(pitch+cameraSpring.angle,yaw,0,'YXZ');
  const reloadEnd=online?local.reloadUntil:reloading,clock=online?serverTime+now-receivedAt:now;
  placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd});
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');
@@ -159,7 +157,10 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
   p.round.position.copy(p.origin).addScaledVector(p.direction,p.distance*progress);p.round.visible=progress<1;
   if(progress===1&&(p.confirmed||age>2)){if(p.confirmed)impactEffect(p.result,now);scene.remove(p.round);if(pendingShots.get(p.result.shotId)===p)pendingShots.delete(p.result.shotId);projectiles.splice(i,1);}
  }
- for(let i=impacts.length-1;i>=0;i--){const hit=impacts[i],age=(now-hit.born)/1000;hit.marker.material.opacity=1-clamp((age-.15)/.5,0,1);if(age>=.65){scene.remove(hit.marker);hit.marker.material.dispose();impacts.splice(i,1);}}
+ for(let i=impacts.length-1;i>=0;i--){const hit=impacts[i],age=(now-hit.born)/1000,layout=hitMarkerLayout(hit.x,hit.y,innerWidth,innerHeight,age);
+  hit.marker.style.left=layout.x+'px';hit.marker.style.top=layout.y+'px';hit.marker.style.opacity=String(layout.opacity);hit.marker.style.transform=`translate(-50%,-50%) scale(${layout.scale})`;
+  if(age>=.9){hit.marker.remove();impacts.splice(i,1);}
+ }
  $('time').textContent=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;
  colorShift.uniforms.strength.value=Math.max(0,1-(now-lastShot)/160);
  if(colorShift.uniforms.strength.value>0){renderer.setRenderTarget(shotBuffer);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.render(screenScene,screenCamera);}else renderer.render(scene,camera);

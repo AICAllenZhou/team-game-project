@@ -3,3 +3,4 @@
 .shot-vignette::before,.shot-vignette::after{content:"";position:absolute;inset:0;pointer-events:none;mix-blend-mode:screen;border-radius:4%;filter:blur(3px)}
 .shot-vignette::before{box-shadow:inset 11px 0 30px rgba(255,45,95,.6),inset -6px 0 20px rgba(255,45,95,.25);transform:translateX(-3px)}
 .shot-vignette::after{box-shadow:inset -11px 0 30px rgba(30,215,255,.6),inset 6px 0 20px rgba(30,215,255,.25);transform:translateX(3px)}
+.hud-impact{position:fixed;z-index:30;width:54px;height:54px;display:grid;place-items:center;pointer-events:none;color:var(--impact-color,#fff);font:900 54px/1 Arial,sans-serif;-webkit-text-stroke:2px #17110b;text-shadow:0 0 3px #000,0 0 12px var(--impact-color,#fff),0 2px 5px #000;will-change:transform,opacity;user-select:none}

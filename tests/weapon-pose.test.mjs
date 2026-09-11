@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Group,Vector3} from '../vendor/three.module.js';
-import {placeWeapon,WEAPON_REACH,freeAimInput,followAim,stepRecoil,kickRecoil} from '../weapon-pose.js';
+import {placeWeapon,WEAPON_REACH,freeAimInput,followAim,stepRecoil,kickRecoil,hitMarkerLayout} from '../weapon-pose.js';
 
 test('weapon reach stays fixed through extreme turns, walking, recoil and reload',()=>{
  const camera=new Group(),rig=new Group(),left=new Group();camera.add(rig,left);left.position.set(-.4,-.42,-.58);
@@ -61,4 +61,23 @@ test('camera sensitivity changes smoothly through the free-aim edge',()=>{
  for(let free=.15;free<.34;free+=.002){const s={freeX:Math.min(.279,free),freeY:0,lookYaw:0,lookPitch:0};freeAimInput(s,1,0,0);const gain=-s.lookYaw;
  if(previousGain!==null)assert.ok(Math.abs(gain-previousGain)<.0001);previousGain=gain;
  }
+});
+
+test('same mouse travel gives identical camera rotation throughout the hand range',()=>{
+ for(const focus of [0,1]){let expected;
+ for(const free of [-.56,-.28,0,.28,.56]){const s={freeX:free,freeY:0,lookYaw:0,lookPitch:0};freeAimInput(s,12,0,focus);
+ if(expected===undefined)expected=s.lookYaw;else assert.ok(Math.abs(expected-s.lookYaw)<1e-12);
+ }}
+});
+test('camera recoil starts with velocity, not an instantaneous angle jump',()=>{
+ const head={angle:0,velocity:1.1};assert.equal(head.angle,0);stepRecoil(head,1/144);assert.ok(head.angle>0&&head.angle<.01);
+});
+test('screen hit marker is visible, drifts outward and stays inside the viewport',()=>{
+ const first=hitMarkerLayout(.3,.2,1280,720,0),later=hitMarkerLayout(.3,.2,1280,720,.4);
+ assert.equal(first.opacity,1);assert.equal(later.opacity,1);assert.ok(later.x>first.x&&later.y<first.y);
+ assert.ok(Math.hypot(later.x-first.x,later.y-first.y)<23);
+ for(const [width,height] of [[1280,720],[640,480]])for(const x of [-1,0,1])for(const y of [-1,0,1]){
+ const p=hitMarkerLayout(x,y,width,height,.8);assert.ok(p.x>=30&&p.x<=width-30);assert.ok(p.y>=30&&p.y<=height-30);
+ }
+ assert.equal(hitMarkerLayout(0,0,1280,720,.9).opacity,0);
 });

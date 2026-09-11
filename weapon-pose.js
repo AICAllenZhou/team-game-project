@@ -9,18 +9,18 @@ export function placeWeapon(rig, {yaw = 0, pitch = 0, bob = 0, lean = 0, recoil 
   rig.rotation.set(vertical + recoil * 1.5, horizontal, reload ? -.4 : lean * .16, 'YXZ');
 }
 
-// A small, continuous head contribution prevents a frozen feeling when turning
-// back across the wide hand range. RMB gives most input to the hand. Only NEW
-// overflow turns the head; changing modes cannot manufacture mouse travel.
+// Camera sensitivity depends only on RMB, never on where the hand is pointing.
+// Transferring overflow to the camera made identical mouse motion accelerate
+// as the hand reached its limit, which felt like a jolt.
 export function freeAimInput(state, dx, dy, focus) {
-  const limits=[.28+.28*focus,.2+.18*focus],speed=1.35*(1-.7*focus),headShare=.18-.12*focus;
+  const limits=[.28+.28*focus,.2+.18*focus],speed=.6*(1-.7*focus),headShare=.18-.12*focus;
   for(const [key,look,delta,limit] of [['freeX','lookYaw',dx*.0018,limits[0]],['freeY','lookPitch',dy*.0018,limits[1]]]){
     const previous=Math.max(-limit*.999,Math.min(limit*.999,state[key]));
     // Soft saturation gradually transfers mouse travel to the camera, avoiding
     // the abrupt sensitivity step when the hand reaches a hard edge.
     const next=limit*Math.tanh(Math.atanh(previous/limit)+delta*(1-headShare)/limit);
     const bounded=Math.max(-limit*.999,Math.min(limit*.999,next));
-    state[key]=bounded;state[look]-=(delta-(bounded-previous))*speed;
+    state[key]=bounded;state[look]-=delta*speed;
   }
   state.lookPitch=Math.max(-1.35,Math.min(1.35,state.lookPitch));
 }
@@ -42,3 +42,11 @@ export function stepRecoil(s,dt){
 }
 
 export function kickRecoil(s){s.velocity=Math.min(20,s.velocity+13);s.angle=Math.min(.9,s.angle+.09);}
+
+export function hitMarkerLayout(x,y,width,height,age){
+ const progress=Math.max(0,Math.min(1,age/.9)),travel=22*(1-(1-progress)**3);
+ const length=Math.hypot(x,y),dx=length>.05?x/length:0,dy=length>.05?-y/length:-1;
+ return {x:Math.max(30,Math.min(width-30,(x*.5+.5)*width+dx*travel)),
+ y:Math.max(30,Math.min(height-30,(-y*.5+.5)*height+dy*travel)),
+ opacity:Math.max(0,Math.min(1,(.9-age)/.35)),scale:1+.25*Math.exp(-age*18)};
+}

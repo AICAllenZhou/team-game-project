@@ -12,7 +12,11 @@ export function projectileProgress(distance,seconds){return Math.min(1,Math.max(
 export function predictionCorrection(predicted,authoritative){
  const x=authoritative.x-predicted.x,z=authoritative.z-predicted.z;
  // Normal 20 Hz packet timing must not tug the local player backward.
- return Math.hypot(x,z)<=.3?{x:0,z:0}:{x,z};
+ const length=Math.hypot(x,z),excess=Math.max(0,length-.3);
+ // Fade the correction in with a zero slope at the tolerance boundary rather
+ // than switching a full correction on and off as packets fluctuate around it.
+ const scale=length>0?excess*excess/(excess+.2)/length:0;
+ return {x:x*scale,z:z*scale};
 }
 export function settlePrediction(position,error,dt){
  const length=Math.hypot(error.x,error.z);if(!length)return;
