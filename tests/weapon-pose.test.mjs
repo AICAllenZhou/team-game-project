@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {Group,Vector3} from '../vendor/three.module.js';
-import {placeWeapon,WEAPON_REACH,freeAimInput,followAim,stepRecoil,kickRecoil,hitMarkerLayout} from '../weapon-pose.js';
+import {placeWeapon,WEAPON_REACH,freeAimInput,followAim,stepRecoil,kickRecoil} from '../weapon-pose.js';
 
 test('weapon reach stays fixed through extreme turns, walking, recoil and reload',()=>{
  const camera=new Group(),rig=new Group(),left=new Group();camera.add(rig,left);left.position.set(-.4,-.42,-.58);
@@ -41,7 +41,7 @@ test('mouse batching and left/right travel produce consistent angles',()=>{
 });
 test('hand offsets remain bounded after multiple complete camera turns',()=>{
  for(const hz of [30,60,144]){const s={yaw:0,pitch:0,lookYaw:Math.PI*12,lookPitch:.5,freeX:.56,freeY:.38,handYaw:0,handPitch:0};
- for(let i=0;i<hz*2;i++){followAim(s,1/hz);assert.ok(s.handYaw>=-.56&&s.handYaw<=0);}
+ for(let i=0;i<hz*10;i++){followAim(s,1/hz);assert.ok(s.handYaw>=-.56&&s.handYaw<=0);}
  assert.ok(Math.abs(s.yaw-s.lookYaw)<1e-8);assert.ok(Math.abs(s.handYaw+.56)<1e-8);
  }
 });
@@ -52,7 +52,7 @@ test('releasing focus does not manufacture camera movement',()=>{
 test('wrist recoil kicks upward and recovers at multiple frame rates',()=>{
  for(const hz of [30,60,144]){const s={angle:0,velocity:0};kickRecoil(s);let peak=0;
  for(let i=0;i<hz*2;i++){stepRecoil(s,1/hz);peak=Math.max(peak,s.angle);}
- assert.ok(peak>.45&&peak<.9);assert.ok(Math.abs(s.angle)<.001);
+ assert.ok(peak>.6&&peak<1.1);assert.ok(Math.abs(s.angle)<.001);
  }
 });
 
@@ -72,12 +72,8 @@ test('same mouse travel gives identical camera rotation throughout the hand rang
 test('camera recoil starts with velocity, not an instantaneous angle jump',()=>{
  const head={angle:0,velocity:1.1};assert.equal(head.angle,0);stepRecoil(head,1/144);assert.ok(head.angle>0&&head.angle<.01);
 });
-test('screen hit marker stays fixed and disappears after a quarter second',()=>{
- const first=hitMarkerLayout(.3,.2,1280,720,0),later=hitMarkerLayout(.3,.2,1280,720,.1);
- assert.equal(first.opacity,1);assert.deepEqual(later,first);assert.equal(first.scale,1);
- for(const [width,height] of [[1280,720],[640,480]])for(const x of [-1,0,1])for(const y of [-1,0,1]){
- const p=hitMarkerLayout(x,y,width,height,.2);assert.ok(p.x>=18&&p.x<=width-18);assert.ok(p.y>=18&&p.y<=height-18);
+test('delayed mouse input cannot cause an instantaneous camera velocity jump',()=>{
+ for(const hz of [30,60,144]){const s={yaw:0,pitch:0,lookYaw:12,lookPitch:.7,freeX:0,freeY:0,handYaw:0,handPitch:0,yawVelocity:0,pitchVelocity:0};
+ for(let i=0;i<hz*2;i++){const before=s.yaw,velocity=s.yawVelocity;followAim(s,1/hz);assert.ok(Math.abs(s.yaw-before)<=8/hz+1e-9);assert.ok(Math.abs(s.yawVelocity-velocity)<=80/hz+1e-9);}
  }
- const fading=hitMarkerLayout(.3,.2,1280,720,.2);assert.equal(fading.x,first.x);assert.equal(fading.y,first.y);assert.equal(fading.scale,1);assert.ok(fading.opacity>0&&fading.opacity<1);
- assert.equal(hitMarkerLayout(0,0,1280,720,.25).opacity,0);
 });

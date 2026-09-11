@@ -19,10 +19,11 @@ export function predictionCorrection(predicted,authoritative){
  return {x:x*scale,z:z*scale};
 }
 export function settlePrediction(position,error,dt){
- const length=Math.hypot(error.x,error.z);if(!length)return;
- const amount=Math.min(1-Math.exp(-4*dt),.75*dt/length);
- position.x+=error.x*amount;position.z+=error.z*amount;
- error.x*=1-amount;error.z*=1-amount;
+ const length=Math.hypot(error.x,error.z),gain=length>0?Math.min(4,.75/length):0,blend=1-Math.exp(-10*dt);
+ position.correctionVX=((position.correctionVX||0)+(error.x*gain-(position.correctionVX||0))*blend);
+ position.correctionVZ=((position.correctionVZ||0)+(error.z*gain-(position.correctionVZ||0))*blend);
+ const dx=position.correctionVX*dt,dz=position.correctionVZ*dt;
+ position.x+=dx;position.z+=dz;error.x-=dx;error.z-=dz;
 }
 const arenaBoxes=[{x:0,y:-.26,z:0,w:56,h:.5,d:56}];
 for(const side of [-1,1]){
@@ -56,10 +57,16 @@ export function move(p,input,dt){
  const x=Math.max(-1,Math.min(1,Number(input.x)||0)),z=Math.max(-1,Math.min(1,Number(input.z)||0));
  const len=Math.max(1,Math.hypot(x,z));
  p.yaw=Number.isFinite(input.yaw)?input.yaw:p.yaw;p.pitch=Math.max(-1.35,Math.min(1.35,Number(input.pitch)||0));
- p.x=Math.max(-LIMIT,Math.min(LIMIT,p.x+(x*Math.cos(p.yaw)+z*Math.sin(p.yaw))/len*SPEED*dt));
- p.z=Math.max(-LIMIT,Math.min(LIMIT,p.z+(-x*Math.sin(p.yaw)+z*Math.cos(p.yaw))/len*SPEED*dt));
+ // Exact exponential velocity integration gives the same acceleration at the
+ // server's 20 Hz and at the browser's render rate, including stops/reversals.
+ const targetX=(x*Math.cos(p.yaw)+z*Math.sin(p.yaw))/len*SPEED,targetZ=(-x*Math.sin(p.yaw)+z*Math.cos(p.yaw))/len*SPEED;
+ const decay=Math.exp(-12*dt),travel=(1-decay)/12,vx=p.vx||0,vz=p.vz||0;
+ const nextX=p.x+targetX*dt+(vx-targetX)*travel,nextZ=p.z+targetZ*dt+(vz-targetZ)*travel;
+ p.vx=targetX+(vx-targetX)*decay;p.vz=targetZ+(vz-targetZ)*decay;
+ p.x=Math.max(-LIMIT,Math.min(LIMIT,nextX));p.z=Math.max(-LIMIT,Math.min(LIMIT,nextZ));
+ if(p.x!==nextX)p.vx=0;if(p.z!==nextZ)p.vz=0;
  if(input.jump&&p.y===0)p.vy=5;
- p.vy-=15*dt;p.y=Math.max(0,p.y+p.vy*dt);if(p.y===0)p.vy=0;
+ p.vy=Number.isFinite(p.vy)?p.vy:0;p.y=Math.max(0,p.y+p.vy*dt-7.5*dt*dt);p.vy-=15*dt;if(p.y===0)p.vy=0;
 }
 export function rayHit(origin,direction,target){
  // Vertical capsule: two spherical caps plus cylindrical middle.

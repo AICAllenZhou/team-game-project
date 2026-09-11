@@ -26,8 +26,17 @@ export function freeAimInput(state, dx, dy, focus) {
 }
 
 export function followAim(state,dt){
-  const blend=1-Math.exp(-24*dt);
-  state.yaw+=(state.lookYaw-state.yaw)*blend;state.pitch+=(state.lookPitch-state.pitch)*blend;
+  // Preserve angular velocity across frames instead of instantly changing it
+  // with every mouse batch. Bound acceleration and speed for delayed events.
+  const steps=Math.max(1,Math.ceil(dt*120)),h=dt/steps;
+  for(const [key,target,velocity] of [['yaw','lookYaw','yawVelocity'],['pitch','lookPitch','pitchVelocity']]){
+    state[velocity]??=0;
+    for(let i=0;i<steps;i++){
+      const error=state[target]-state[key],acceleration=Math.max(-80,Math.min(80,900*error-60*state[velocity]));
+      state[velocity]=Math.max(-8,Math.min(8,state[velocity]+acceleration*h));
+      state[key]+=state[velocity]*h;
+    }
+  }
   // Follow LOCAL offsets, not a wrapped world angle. Even repeated full turns
   // cannot strand the barrel facing backwards or swap the side it lags toward.
   const gunBlend=1-Math.exp(-16*dt);
@@ -41,10 +50,4 @@ export function stepRecoil(s,dt){
   for(let i=0;i<steps;i++){s.velocity+=(-155*s.angle-16*s.velocity)*h;s.angle+=s.velocity*h;}
 }
 
-export function kickRecoil(s){s.velocity=Math.min(20,s.velocity+13);s.angle=Math.min(.9,s.angle+.09);}
-
-export function hitMarkerLayout(x,y,width,height,age){
- return {x:Math.max(18,Math.min(width-18,(x*.5+.5)*width)),
- y:Math.max(18,Math.min(height-18,(-y*.5+.5)*height)),
- opacity:Math.max(0,Math.min(1,(.25-age)/.1)),scale:1};
-}
+export function kickRecoil(s){s.velocity=Math.min(24,s.velocity+17);s.angle=Math.min(1,s.angle+.11);}

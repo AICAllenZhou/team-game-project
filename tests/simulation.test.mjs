@@ -1,5 +1,5 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {move,rayHit,traceShot,projectileProgress,predictionCorrection,settlePrediction} from '../simulation.mjs';
-test('movement speed is capped including diagonals and arena edges',()=>{const p={x:0,y:0,z:0,vy:0,yaw:0};move(p,{x:1,z:1},1);assert.ok(Math.abs(Math.hypot(p.x,p.z)-4.5)<1e-9);p.x=27;move(p,{x:100},1);assert.equal(p.x,27);});
+test('movement accelerates smoothly with capped diagonal speed and arena edges',()=>{const p={x:0,y:0,z:0,vy:0,yaw:0};move(p,{x:1,z:1},1);assert.ok(Math.hypot(p.x,p.z)>4&&Math.hypot(p.x,p.z)<4.5);assert.ok(Math.hypot(p.vx,p.vz)<=4.5);p.x=27;move(p,{x:100},1);assert.equal(p.x,27);});
 test('capsule hit test distinguishes hits, misses, and targets behind shooter',()=>{const o={x:0,y:1.5,z:0},d={x:0,y:0,z:-1};assert.ok(rayHit(o,d,{x:0,y:0,z:-10})<10);assert.equal(rayHit(o,d,{x:2,y:0,z:-10}),Infinity);assert.equal(rayHit(o,d,{x:0,y:0,z:10}),Infinity);});
 test('jump returns to base plate',()=>{const p={x:0,y:0,z:0,vy:0,yaw:0};move(p,{jump:true},.05);assert.ok(p.y>0);for(let i=0;i<40;i++)move(p,{},.05);assert.equal(p.y,0);});
 test('center targets stop shots from either side and reject misses',async()=>{
@@ -28,8 +28,14 @@ test('visible flight is frame-rate independent and close shots remain visible',(
 test('packet timing jitter does not pull the walking player back',()=>{
  const p={x:0,y:0,z:0,vy:0,yaw:0};
  for(let i=0;i<60;i++){move(p,{z:-1},1/60);const error=predictionCorrection(p,{x:p.x,z:p.z+.225});settlePrediction(p,error,1/60);}
- assert.ok(Math.abs(p.z+4.5)<1e-8);
+ const uninterrupted={x:0,y:0,z:0,vy:0,yaw:0};move(uninterrupted,{z:-1},1);assert.ok(Math.abs(p.z-uninterrupted.z)<1e-8);
  const before=p.x,error=predictionCorrection(p,{x:4,z:p.z});settlePrediction(p,error,1/60);assert.ok(p.x>before&&p.x-before<=.75/60+1e-9);
+});
+
+test('server and render frame rates agree through walking, reversal and stopping',()=>{
+ function simulate(hz){const p={x:0,y:0,z:0,vy:0,yaw:0};for(const x of [1,-1,0])for(let i=0;i<hz;i++)move(p,{x},1/hz);return p;}
+ const server=simulate(20);for(const hz of [30,60,144]){const client=simulate(hz);assert.ok(Math.abs(server.x-client.x)<1e-8);assert.ok(Math.abs(server.vx-client.vx)<1e-8);}
+ const p={x:0,y:0,z:0,vy:0,yaw:0};move(p,{x:1},1/60);assert.ok(p.vx>0&&p.vx<1);assert.ok(p.x<4.5/60);
 });
 
 test('crossing the reconciliation threshold does not switch on a sudden correction',()=>{

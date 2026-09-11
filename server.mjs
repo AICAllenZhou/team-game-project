@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {move,traceShot} from './simulation.mjs';
 const rooms=new Map(),sessions=new Map();
-const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0});
+const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0,vx:0,vz:0});
 const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 function publicPlayer(p){const {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,kills,deaths,reloadUntil,deadUntil,color}=p;return {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,kills,deaths,reloadUntil,deadUntil,color};}
 function broadcast(room,event,data){for(const p of room.values())if(p.stream)send(p.stream,event,data);}
@@ -48,6 +48,7 @@ const server=http.createServer(async(req,res)=>{
  }
  const files={'/':'index.html','/index.html':'index.html','/game.js':'game.js','/weapon-pose.js':'weapon-pose.js','/simulation.mjs':'simulation.mjs','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
  const file=files[url.pathname];if(!file||req.method!=='GET'){res.writeHead(404).end('Not found');return;}
+ res.setHeader('Cache-Control','no-store');
  res.setHeader('Content-Type',file.endsWith('.html')?'text/html':file.endsWith('.css')?'text/css':'text/javascript');res.end(await readFile(fileURLToPath(new URL(file,import.meta.url))));
  }catch(e){console.error(e.message);if(!res.headersSent)res.writeHead(500);res.end();}
 });
