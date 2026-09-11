@@ -16,17 +16,16 @@ for(let i=0;i<20;i++){const a=i*2.399,r=65+(i%3)*12;const rock=mesh(new THREE.Co
 function revolver(parent){const g=new THREE.Group();parent.add(g);box(.12,.14,.32,steel,g,0,0,-.05);box(.085,.09,.34,steel,g,0,.025,-.35);const cylinder=mesh(new THREE.CylinderGeometry(.095,.095,.17,8),steel,g,0,.005,-.04);cylinder.rotation.x=Math.PI/2;const grip=box(.1,.23,.12,wood,g,0,-.16,.08);grip.rotation.x=-.25;box(.025,.04,.025,steel,g,0,.09,-.49);box(.025,.05,.045,steel,g,0,.09,.075);return g;}
 function cowboy(color){const g=new THREE.Group();mesh(new THREE.CapsuleGeometry(.42,.96,4,8),mat(color),g,0,.9,0);mesh(new THREE.CylinderGeometry(.67,.67,.09,10),hat,g,0,1.79,0);mesh(new THREE.CylinderGeometry(.34,.38,.3,8),hat,g,0,1.95,0);box(.74,.1,.08,wood,g,0,.76,-.32);
  const right=new THREE.Group();right.position.set(.4,1.15,-.55);g.add(right);mesh(new THREE.SphereGeometry(.13,8,6),skin,right,0,-.13,.07);revolver(right);
- const left=mesh(new THREE.SphereGeometry(.13,8,6),skin,g,-.45,.83,-.12);
- g.userData.rightHand=right;g.userData.leftHand=left;scene.add(g);return g;}
+ g.userData.rightHand=right;scene.add(g);return g;}
 const rig=new THREE.Group();camera.add(rig);
-// Only the right hand is attached to the weapon. The left has its own pivot.
+// The revolver is held with one visible hand.
 mesh(new THREE.SphereGeometry(.13,8,6),skin,rig,0,-.13,.07);const gun=revolver(rig);
-const leftHand=new THREE.Group();camera.add(leftHand);mesh(new THREE.SphereGeometry(.13,8,6),skin,leftHand);
-placeWeapon(rig,{});leftHand.position.set(-.4,-.42,-.58);
+placeWeapon(rig,{});
 const flash=mesh(new THREE.ConeGeometry(.12,.52,5),new THREE.MeshBasicMaterial({color:0xffe6a6}),gun,0,.025,-.69);flash.rotation.x=-Math.PI/2;flash.visible=false;
 const dummies=[cowboy(0xa57450),cowboy(0x6b9290),cowboy(0x9d7b8f)];dummies.forEach((g,i)=>g.position.set((i-1)*5,0,-9-Math.abs(i-1)*3));
 let token=null,id=null,events=null,online=false,joining=false,local={x:0,y:0,z:8,hp:100,ammo:6},yaw=0,pitch=0,freeX=0,freeY=0,gunYaw=0,gunPitch=0,recoil=0,kick=0,lastShot=0,reloading=0,vy=0,last=performance.now(),started=last,serverTime=0,receivedAt=0;
 const keys=new Set(),peers=new Map(),projectiles=[];let audio;
+let focusHeld=false,focusBlend=0;
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
 const angleDelta=(from,to)=>Math.atan2(Math.sin(to-from),Math.cos(to-from));
 const gunDirection=()=>{gun.updateWorldMatrix(true,false);return new THREE.Vector3(0,0,-1).transformDirection(gun.matrixWorld);};
@@ -50,10 +49,18 @@ $('play').onclick=async()=>{
  }catch(e){$('error').textContent='Could not join: '+e.message;joining=false;$('play').disabled=false;return;}joining=false;$('play').disabled=false;}
  try{await $('game').requestPointerLock();}catch{$('error').textContent='Click Enter again to capture the mouse.';}
 };
-document.addEventListener('pointerlockchange',()=>{const locked=document.pointerLockElement===$('game');document.body.classList.toggle('playing',locked);keys.clear();if(locked)$('play').innerHTML='RESUME <span>↗</span>';});
-document.addEventListener('mousemove',e=>{if(!document.pointerLockElement)return;const nextX=freeX+e.movementX*.0018,nextY=freeY+e.movementY*.0018,limitX=.115,limitY=.08;freeX=clamp(nextX,-limitX,limitX);freeY=clamp(nextY,-limitY,limitY);yaw-=(nextX-freeX)*1.75;pitch=clamp(pitch-(nextY-freeY)*1.75,-1.35,1.35);});
+document.addEventListener('pointerlockchange',()=>{const locked=document.pointerLockElement===$('game');document.body.classList.toggle('playing',locked);keys.clear();focusHeld=false;if(locked)$('play').innerHTML='RESUME <span>↗</span>';});
+document.addEventListener('mousemove',e=>{if(!document.pointerLockElement)return;
+ const nextX=freeX+e.movementX*.0018,nextY=freeY+e.movementY*.0018,limitX=.115+.115*focusBlend,limitY=.08+.09*focusBlend;
+ freeX=clamp(nextX,-limitX,limitX);freeY=clamp(nextY,-limitY,limitY);
+ const cameraSpeed=1.75*(1-.7*focusBlend);
+ yaw-=(nextX-freeX)*cameraSpeed;pitch=clamp(pitch-(nextY-freeY)*cameraSpeed,-1.35,1.35);
+});
+window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockElement===$('game')){e.preventDefault();focusHeld=true;}});
+window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;});
+$('game').addEventListener('contextmenu',e=>e.preventDefault());
 window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='Tab')$('score').style.display='block';if(e.code==='KeyR'&&document.pointerLockElement)reload();});
-window.addEventListener('keyup',e=>{keys.delete(e.code);if(e.code==='Tab')$('score').style.display='none';});window.addEventListener('blur',()=>{keys.clear();$('score').style.display='none';});
+window.addEventListener('keyup',e=>{keys.delete(e.code);if(e.code==='Tab')$('score').style.display='none';});window.addEventListener('blur',()=>{keys.clear();focusHeld=false;$('score').style.display='none';});
 function reload(){if(online){post('reload').catch(networkError);}else if(!reloading&&local.ammo<6)reloading=performance.now()+1800;}
 function networkError(e){$('connection').textContent='DISCONNECTED';$('error').textContent=e.message+' — reload the page to rejoin.';document.exitPointerLock();online=false;token=null;events?.close();}
 window.addEventListener('mousedown',e=>{if(e.button!==0||!document.pointerLockElement||local.hp<=0)return;const now=performance.now();if(now-lastShot<240||local.reloadUntil||reloading)return;if(!local.ammo){reload();return;}
@@ -63,6 +70,11 @@ window.addEventListener('mousedown',e=>{if(e.button!==0||!document.pointerLockEl
  else{local.ammo--;$('ammo').textContent=local.ammo;const ray=new THREE.Raycaster(origin,direction);const hits=ray.intersectObjects(dummies,true);if(hits.length){$('hit').style.opacity=1;setTimeout(()=>$('hit').style.opacity=0,130);}shotEffect({id:'local',origin,direction,distance:hits[0]?.distance||60});}});
 setInterval(()=>{if(!online)return;const active=!!document.pointerLockElement;post('input',{x:active?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:active?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,gunYaw,gunPitch,jump:active&&keys.has('Space')}).catch(networkError);},50);
 function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.05);last=now;const t=(now-started)/1000,locked=!!document.pointerLockElement;
+ focusBlend+=(Number(focusHeld&&locked&&local.hp>0)-focusBlend)*(1-Math.exp(-12*dt));
+ // Settle excess free aim gently when RMB is released, without snapping the head.
+ const focusLimitX=.115+.115*focusBlend,focusLimitY=.08+.09*focusBlend;
+ freeX+=(clamp(freeX,-focusLimitX,focusLimitX)-freeX)*(1-Math.exp(-12*dt));
+ freeY+=(clamp(freeY,-focusLimitY,focusLimitY)-freeY)*(1-Math.exp(-12*dt));
  if(!online&&locked){let x=Number(keys.has('KeyD'))-Number(keys.has('KeyA')),z=Number(keys.has('KeyS'))-Number(keys.has('KeyW')),len=Math.max(1,Math.hypot(x,z));local.x=THREE.MathUtils.clamp(local.x+(x*Math.cos(yaw)+z*Math.sin(yaw))/len*4.5*dt,-27,27);local.z=THREE.MathUtils.clamp(local.z+(-x*Math.sin(yaw)+z*Math.cos(yaw))/len*4.5*dt,-27,27);if(keys.has('Space')&&local.y===0)vy=5;vy-=15*dt;local.y=Math.max(0,local.y+vy*dt);if(!local.y)vy=0;}
  if(reloading&&now>=reloading){reloading=0;local.ammo=6;$('ammo').textContent=6;}
  const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k)),lean=locked?(Number(keys.has('KeyE'))-Number(keys.has('KeyQ'))):0,bob=moving?Math.sin(t*9)*.025:Math.sin(t*1.8)*.004;
@@ -70,8 +82,6 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  camera.position.lerp(new THREE.Vector3(local.x,local.y+1.5+bob,local.z),online?1-Math.exp(-20*dt):1);recoil*=Math.exp(-12*dt);kick*=Math.exp(-17*dt);camera.rotation.set(pitch+kick,yaw,moving?Math.sin(t*4.5)*.008:0,'YXZ');
  const reloadEnd=online?local.reloadUntil:reloading,clock=online?serverTime+now-receivedAt:now;
  placeWeapon(rig,{yaw:angleDelta(yaw,gunYaw),pitch:gunPitch-pitch,bob,lean,recoil,reload:!!reloadEnd});
- // Relaxed off-hand follows the walk cycle, never the aiming deadzone or kick.
- leftHand.position.lerp(new THREE.Vector3(-.4+Math.sin(t*4.5)*Number(moving)*.025,-.42+Math.sin(t*9+Math.PI)*Number(moving)*.035,-.58),1-Math.exp(-9*dt));
  $('reload').textContent=reloadEnd?'RELOADING':'R · RELOAD';
  $('notice').textContent=local.hp<=0?`BACK IN ${Math.max(1,Math.ceil((local.deadUntil-clock)/1000))}`:'';
  for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(new THREE.Vector3(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;}}

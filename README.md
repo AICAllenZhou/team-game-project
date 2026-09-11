@@ -8,7 +8,7 @@ A medium-paced, low-poly Wild West FPS built with HTML, CSS, JavaScript and Thre
 
 ### Run multiplayer
 
-The right hand alone holds and aims the revolver; the left hand has an independent relaxed walk animation. The revolver's anchor remains 0.78 units from the eye during aim, recoil and reload. Recoil rotates the weapon instead of moving it closer to the player, and shots originate at the visible muzzle.
+Only the gun hand is visible, including on other players. Hold RMB to slow camera turning to 30% speed and give the hand a larger independent aiming range. Releasing RMB smoothly returns normal handling. The revolver's anchor remains 0.78 units from the eye during aim, recoil and reload. Recoil rotates the weapon instead of moving it closer to the player, and shots originate at the visible muzzle.
 
 Install Node.js 22 or newer, then run `node server.mjs` and open `http://localhost:3000`. No package installation or build is needed. Players on the same network can open `http://YOUR-LAN-IP:3000` and enter the same room name. Each room supports 12 players. To play over the internet, deploy this Node server to a host supporting long-lived HTTP/SSE connections and share its HTTPS URL. Allow the server port through your firewall only as needed.
 
