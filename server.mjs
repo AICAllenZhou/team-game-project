@@ -6,7 +6,7 @@ import {move,rayHit} from './simulation.mjs';
 const rooms=new Map(),sessions=new Map();
 const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0});
 const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-function publicPlayer(p){const {id,name,x,y,z,yaw,pitch,hp,ammo,kills,deaths,reloadUntil,deadUntil,color}=p;return {id,name,x,y,z,yaw,pitch,hp,ammo,kills,deaths,reloadUntil,deadUntil,color};}
+function publicPlayer(p){const {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,kills,deaths,reloadUntil,deadUntil,color}=p;return {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,kills,deaths,reloadUntil,deadUntil,color};}
 function broadcast(room,event,data){for(const p of room.values())if(p.stream)send(p.stream,event,data);}
 function remove(p){p.stream?.end();sessions.delete(p.token);const room=rooms.get(p.room);room?.delete(p.id);if(!room?.size)rooms.delete(p.room);}
 const server=http.createServer(async(req,res)=>{
@@ -21,14 +21,14 @@ const server=http.createServer(async(req,res)=>{
    if(sessions.size>=128){res.writeHead(503).end('Server full');return;}
    if(!rooms.has(key))rooms.set(key,new Map());const room=rooms.get(key);
    if(room.size>=12){res.writeHead(409).end('Room full (12 players)');return;}
-   const p={id:randomUUID(),token:randomUUID(),room:key,name:String(data.name||'Drifter').slice(0,16),...spawn(),yaw:0,pitch:0,hp:100,ammo:6,kills:0,deaths:0,reloadUntil:0,deadUntil:0,lastShot:0,lastSeen:Date.now(),input:{},color:[0xc17a47,0x658c91,0x96799c,0x879466][room.size%4]};room.set(p.id,p);sessions.set(p.token,p);
+   const p={id:randomUUID(),token:randomUUID(),room:key,name:String(data.name||'Drifter').slice(0,16),...spawn(),yaw:0,pitch:0,gunYaw:0,gunPitch:0,hp:100,ammo:6,kills:0,deaths:0,reloadUntil:0,deadUntil:0,lastShot:0,lastSeen:Date.now(),input:{},color:[0xc17a47,0x658c91,0x96799c,0x879466][room.size%4]};room.set(p.id,p);sessions.set(p.token,p);
    res.setHeader('Content-Type','application/json');res.end(JSON.stringify({token:p.token,id:p.id,room:key}));return;
   }
   const p=sessions.get(data.token);if(!p){res.writeHead(401).end();return;}p.lastSeen=Date.now();const now=Date.now(),room=rooms.get(p.room);
-  if(url.pathname==='/api/input'){p.input={x:data.x,z:data.z,yaw:data.yaw,pitch:data.pitch,jump:!!data.jump};}
+  if(url.pathname==='/api/input'){p.input={x:data.x,z:data.z,yaw:data.yaw,pitch:data.pitch,jump:!!data.jump};p.gunYaw=Number.isFinite(data.gunYaw)?data.gunYaw:p.yaw;p.gunPitch=Math.max(-1.35,Math.min(1.35,Number.isFinite(data.gunPitch)?data.gunPitch:p.pitch));}
   else if(url.pathname==='/api/reload'&&p.hp>0&&!p.reloadUntil&&p.ammo<6)p.reloadUntil=now+1800;
-  else if(url.pathname==='/api/fire'&&p.hp>0&&!p.reloadUntil&&p.ammo>0&&now-p.lastShot>=420){
-   p.lastShot=now;p.ammo--;const origin={x:p.x,y:p.y+1.5,z:p.z},direction={x:-Math.sin(p.yaw)*Math.cos(p.pitch),y:Math.sin(p.pitch),z:-Math.cos(p.yaw)*Math.cos(p.pitch)};
+  else if(url.pathname==='/api/fire'&&p.hp>0&&!p.reloadUntil&&p.ammo>0&&now-p.lastShot>=240){
+   p.lastShot=now;p.ammo--;const direction={x:-Math.sin(p.gunYaw)*Math.cos(p.gunPitch),y:Math.sin(p.gunPitch),z:-Math.cos(p.gunYaw)*Math.cos(p.gunPitch)},origin={x:p.x+direction.x*.76+Math.cos(p.gunYaw)*.19,y:p.y+1.27+direction.y*.76,z:p.z+direction.z*.76-Math.sin(p.gunYaw)*.19};
    let victim=null,distance=70;for(const other of room.values()){if(other===p||other.hp<=0)continue;const d=rayHit(origin,direction,other);if(d<distance){victim=other;distance=d;}}
    if(victim){victim.hp=Math.max(0,victim.hp-34);if(!victim.hp){victim.deaths++;p.kills++;victim.deadUntil=now+3000;victim.input={};}}
    broadcast(room,'shot',{id:p.id,origin,direction,distance,hit:victim?.id||null});
