@@ -1,9 +1,12 @@
 import * as THREE from './vendor/three.module.js';
 import {createWeaponAudio} from './weapon-audio.js';
+import {createGameLoop} from './game-loop.js';
 import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil,captureBarrelRay} from './weapon-pose.js';
 import {move,TRAINING_TARGETS,traceShot,PROJECTILE_SPEED,projectileProgress,predictionCorrection,settlePrediction,FAN_INTERVAL,FAN_CLICK_WINDOW} from './simulation.mjs';
 const $=id=>document.getElementById(id);
-const renderer=new THREE.WebGLRenderer({canvas:$('game'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.setClearColor(0x9b9387);
+const gameLoop=createGameLoop({onFrame:now=>frame(now)});
+let renderReady=false,inputTimer=null,idleTimer=null,pendingState=null,stopInputPending=false;
+const renderer=new THREE.WebGLRenderer({canvas:$('game'),antialias:false});renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.setClearColor(0x9b9387);
 const scene=new THREE.Scene();scene.fog=new THREE.Fog(0x9b9387,38,100);
 // Keep one rendering path active so firing/aiming cannot switch render targets
 // and shader variants midway through mouse movement.
@@ -14,32 +17,33 @@ const colorShift=new THREE.ShaderMaterial({
  fragmentShader:`uniform sampler2D frame; uniform float strength,blast,heat,time,aspect; uniform vec2 aimStart,aimEnd,muzzleUV; varying vec2 vUv;
  vec3 bright(vec2 uv){vec3 c=texture2D(frame,clamp(uv,vec2(0.001),vec2(0.999))).rgb;return c*smoothstep(0.65,1.0,max(c.r,max(c.g,c.b)));}
  void main(){vec2 radial=vUv-0.5;float edge=smoothstep(0.2,0.65,length(radial));
- vec2 ratio=vec2(aspect,1.0),a=aimStart*ratio,b=aimEnd*ratio,p=vUv*ratio,ab=b-a;
+ vec2 ratio=vec2(aspect,1.0),wave=vec2(0.0);
+ if(heat>0.001){vec2 a=aimStart*ratio,b=aimEnd*ratio,p=vUv*ratio,ab=b-a;
  float along=clamp(dot(p-a,ab)/max(dot(ab,ab),0.00001),0.0,1.0);
  float beamDistance=length(p-a-ab*along);
  float haze=exp(-beamDistance*beamDistance/0.00045)*heat*smoothstep(0.0015,0.004,beamDistance);
- vec2 wave=vec2(sin(vUv.y*110.0-time*7.0),cos(vUv.x*95.0+time*5.0))*haze*0.0025;
+ wave=vec2(sin(vUv.y*110.0-time*7.0),cos(vUv.x*95.0+time*5.0))*haze*0.0025;}
  vec2 uv=clamp(vUv+wave,vec2(0.001),vec2(0.999));
  vec2 shift=radial*edge*strength*0.009;
- vec3 color=vec3(texture2D(frame,clamp(uv+shift,vec2(0.001),vec2(0.999))).r,
- texture2D(frame,uv).g,texture2D(frame,clamp(uv-shift,vec2(0.001),vec2(0.999))).b);
- // Constant-cost bright-pass blur plus a soft lens halo around the muzzle.
- // The pass stays compiled and active even between shots.
- vec2 texel=vec2(0.008/aspect,0.008);
+ vec3 color=texture2D(frame,uv).rgb;
+ if(strength>0.001){color.r=texture2D(frame,clamp(uv+shift,vec2(0.001),vec2(0.999))).r;
+ color.b=texture2D(frame,clamp(uv-shift,vec2(0.001),vec2(0.999))).b;}
+ // Skip the bright-pass texture fetches between shots, keeping one shader.
+ if(blast>0.001){vec2 texel=vec2(0.008/aspect,0.008);
  vec3 bloom=bright(uv+texel*vec2(1.,0.))+bright(uv+texel*vec2(-1.,0.))
  +bright(uv+texel*vec2(0.,1.))+bright(uv+texel*vec2(0.,-1.))
  +bright(uv+texel*vec2(1.,1.))+bright(uv+texel*vec2(-1.,1.))
  +bright(uv+texel*vec2(1.,-1.))+bright(uv+texel*vec2(-1.,-1.));
  vec2 muzzleDelta=(vUv-muzzleUV)*ratio;float radius2=dot(muzzleDelta,muzzleDelta);
  float halo=exp(-radius2/0.003)*0.9+exp(-radius2/0.024)*0.18;
- color+=blast*(bloom*0.16*exp(-radius2/0.05)+vec3(1.0,0.64,0.29)*halo);
+ color+=blast*(bloom*0.16*exp(-radius2/0.05)+vec3(1.0,0.64,0.29)*halo);}
  gl_FragColor=vec4(color,1.0);
  #include <colorspace_fragment>
  }`
 });
 const screenScene=new THREE.Scene(),screenCamera=new THREE.Camera();screenScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),colorShift));
 const camera=new THREE.PerspectiveCamera(100,innerWidth/innerHeight,.05,160);camera.rotation.order='YXZ';scene.add(camera);
-scene.add(new THREE.HemisphereLight(0xc9d0dc,0x705237,1.9));const sun=new THREE.DirectionalLight(0xffd09a,2.6);sun.position.set(-20,18,15);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-35,right:35,top:35,bottom:-35,far:90});sun.shadow.bias=-.001;scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xc9d0dc,0x705237,1.9));const sun=new THREE.DirectionalLight(0xffd09a,2.6);sun.position.set(-20,18,15);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);Object.assign(sun.shadow.camera,{left:-35,right:35,top:35,bottom:-35,far:90});sun.shadow.bias=-.001;scene.add(sun);
 const mat=(color)=>new THREE.MeshStandardMaterial({color,roughness:.85,flatShading:true});
 const sand=mat(0xa8895c),edge=mat(0x796345),skin=mat(0xd7b18a),steel=mat(0x484b4a),wood=mat(0x633f2a),hat=mat(0x493d2b);
 function mesh(geometry,material,parent,x=0,y=0,z=0){const m=new THREE.Mesh(geometry,material);m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;parent.add(m);return m;}
@@ -90,6 +94,7 @@ for(const side of [-1,1]){const jet=mesh(new THREE.ConeGeometry(.035,.15,5),flas
 // Keep the light visible at zero intensity to prevent shader recompilation
 // whenever a muzzle flash changes the number of visible lights.
 const muzzleLight=new THREE.PointLight(0xffb95d,0,7,2);gun.add(muzzleLight);muzzleLight.position.set(0,.025,-.52);
+rig.traverse(object=>{if(object.isMesh)object.castShadow=false;});
 const aimGeometry=new THREE.BufferGeometry();aimGeometry.setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(6),3));
 const aimMaterial=new THREE.LineBasicMaterial({color:0xffdf9b,transparent:true,opacity:0,depthWrite:false});
 const aimBeam=new THREE.Line(aimGeometry,aimMaterial);aimBeam.frustumCulled=false;scene.add(aimBeam);
@@ -107,7 +112,7 @@ for(const target of TRAINING_TARGETS){
  targets.set(target.id,{group:g,face,hitAt:-100});
 }
 const dummies=[cowboy(0xa57450),cowboy(0x6b9290),cowboy(0x9d7b8f)];dummies.forEach((g,i)=>g.position.set((i-1)*5,0,-9-Math.abs(i-1)*3));
-let token=null,id=null,events=null,online=false,joining=false,local={x:0,y:0,z:8,vy:0,hp:100,ammo:6},yaw=0,pitch=0,freeX=0,freeY=0,gunYaw=0,gunPitch=0,lastShot=0,reloading=0,last=performance.now(),started=last,serverTime=0,receivedAt=0;
+let token=null,id=null,events=null,online=false,joining=false,local={x:0,y:0,z:8,vy:0,hp:100,ammo:6},yaw=0,pitch=0,freeX=0,freeY=0,gunYaw=0,gunPitch=0,lastShot=-Infinity,reloading=0,last=0,lastAimFrame=0,started=0,serverTime=0,receivedAt=0;
 const keys=new Set(),peers=new Map(),projectiles=[];let audio;
 const pendingShots=new Map();let shotSequence=0,barrelHeat=0;
 let displayedAim=null,frozenAim=null,lastClick=-Infinity,queuedFanClick=false;
@@ -124,20 +129,24 @@ const predicted={x:0,y:0,z:8,vy:0,yaw:0,pitch:0};let predictionReady=false,corre
 const smoothPosition=new THREE.Vector3(0,1.5,8);let walkBlend=0,walkPhase=0,inputInFlight=false;
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
 const angleDelta=(from,to)=>Math.atan2(Math.sin(to-from),Math.cos(to-from));
+const positionScratch=new THREE.Vector3(),uvScratch=new THREE.Vector3(),beamEndScratch=new THREE.Vector3(),directionScratch=new THREE.Vector3();
+const practiceCandidates=dummies.map((g,i)=>({id:`dummy-${i}`,x:g.position.x,y:g.position.y,z:g.position.z,hp:100})),shotCandidates=[];
 function captureAim(){const {origin,direction}=captureBarrelRay(gun);
- const candidates=online?[...peers.values()].map(g=>g.userData.target).filter(Boolean):dummies.map((g,i)=>({id:`dummy-${i}`,x:g.position.x,y:g.position.y,z:g.position.z,hp:100}));
+ const candidates=online?shotCandidates:practiceCandidates;
+ if(online){shotCandidates.length=0;for(const g of peers.values())if(g.userData.target)shotCandidates.push(g.userData.target);}
  return {origin,direction,result:traceShot(origin,direction,candidates)};
 }
 function sound(){try{audio?.play();}catch{}}
 async function post(path,data={}){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,...data})});if(!r.ok)throw Error(await r.text()||'Connection lost');return r.status===204?null:r.json();}
 function shotEffect(s,predicted=false){
- if(s.id!==id&&peers.has(s.id))cockRevolver(peers.get(s.id).userData.revolver,performance.now(),s.fan);
+ if(!gameLoop.running)return;
+ if(s.id!==id&&peers.has(s.id))cockRevolver(peers.get(s.id).userData.revolver,gameLoop.now(),s.fan);
  const existing=s.id===id&&s.shotId?pendingShots.get(s.shotId):null;
  if(existing&&!predicted){existing.result=s;existing.confirmed=true;return;}
  const direction=new THREE.Vector3(s.direction.x,s.direction.y,s.direction.z).normalize(),origin=new THREE.Vector3(s.origin.x,s.origin.y,s.origin.z);
  const round=new THREE.Mesh(roundGeometry,roundMaterial);round.position.copy(origin);round.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),direction);scene.add(round);
  const glow=new THREE.Mesh(roundGeometry,glowMaterial);glow.scale.set(1.8,1.15,1.8);round.add(glow);
- const flight={round,direction,origin,distance:s.distance,duration:Math.max(.05,s.distance/PROJECTILE_SPEED),born:performance.now(),result:s,confirmed:!predicted};
+ const flight={round,direction,origin,distance:s.distance,duration:Math.max(.05,s.distance/PROJECTILE_SPEED),born:gameLoop.now(),result:s,confirmed:!predicted};
  projectiles.push(flight);if(predicted)pendingShots.set(s.shotId,flight);
 }
 function impactEffect(result,now){
@@ -154,7 +163,7 @@ function emitParticles(origin,direction,color,count,smoke){
  p.mesh.scale.setScalar(smoke?.6:1);
  }
 }
-function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt=performance.now();const mine=s.players.find(p=>p.id===id);if(!mine)return;
+function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt=gameLoop.now();const mine=s.players.find(p=>p.id===id);if(!mine)return;
  if(!predictionReady||(!local.hp&&mine.hp>0)){Object.assign(predicted,{x:mine.x,y:mine.y,z:mine.z,vy:0,vx:0,vz:0,correctionVX:0,correctionVZ:0});correction={x:0,z:0};smoothPosition.set(mine.x,mine.y+1.5,mine.z);predictionReady=true;}
  else correction=predictionCorrection(predicted,mine);
  local=mine;
@@ -173,11 +182,13 @@ $('play').onclick=async()=>{
  if(!token){joining=true;$('play').disabled=true;try{
  const r=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Drifter',room:'frontier'})});
  if(r.status===404||r.status===405){online=false;}
- else {if(!r.ok)throw Error(await r.text());const data=await r.json();token=data.token;id=data.id;online=true;events=new EventSource('/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>applyState(JSON.parse(e.data)));events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));dummies.forEach(g=>g.visible=false);}
+ else {if(!r.ok)throw Error(await r.text());const data=await r.json();token=data.token;id=data.id;online=true;events=new EventSource('/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>{const state=JSON.parse(e.data);if(gameLoop.running)applyState(state);else pendingState=state;});events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));dummies.forEach(g=>g.visible=false);}
  }catch(e){joinError('Could not join: '+e.message);joining=false;$('play').disabled=false;return;}joining=false;$('play').disabled=false;}
- try{try{await $('game').requestPointerLock({unadjustedMovement:true});}catch(e){if(e.name!=='NotSupportedError')throw e;await $('game').requestPointerLock();}}catch{joinError('Click Join again to capture the mouse.');}
+ try{try{await $('game').requestPointerLock({unadjustedMovement:true});}catch(e){if(e.name!=='NotSupportedError')throw e;await $('game').requestPointerLock();}}catch{joinError('Click Join again to capture the mouse.');syncActivity(false);}
 };
-document.addEventListener('pointerlockchange',()=>{const locked=document.pointerLockElement===$('game');document.body.classList.toggle('playing',locked);keys.clear();focusHeld=false;queuedFanClick=false;});
+document.addEventListener('pointerlockchange',syncActivity);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)document.exitPointerLock();syncActivity();});
+window.addEventListener('focus',syncActivity);
 document.addEventListener('mousemove',e=>{if(document.pointerLockElement!==$('game'))return;
  const aim={freeX,freeY,lookYaw,lookPitch};freeAimInput(aim,e.movementX,e.movementY,Number(focusHeld));({freeX,freeY,lookYaw,lookPitch}=aim);
 });
@@ -185,10 +196,10 @@ window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockEle
 window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;});
 $('game').addEventListener('contextmenu',e=>e.preventDefault());
 window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='KeyR'&&document.pointerLockElement)reload();});
-window.addEventListener('keyup',e=>{keys.delete(e.code);});window.addEventListener('blur',()=>{keys.clear();focusHeld=false;queuedFanClick=false;});
-function reload(){queuedFanClick=false;if(online){post('reload').catch(networkError);}else if(!reloading&&local.ammo<6)reloading=performance.now()+1800;}
-function networkError(e){joinError(e.message+' — reload the page to rejoin.');document.exitPointerLock();online=false;token=null;events?.close();}
-function fire(requestFan,now=performance.now()){
+window.addEventListener('keyup',e=>{keys.delete(e.code);});window.addEventListener('blur',()=>{document.exitPointerLock();syncActivity(false);});
+function reload(){queuedFanClick=false;if(online){post('reload').catch(networkError);}else if(!reloading&&local.ammo<6)reloading=gameLoop.now()+1800;}
+function networkError(e){joinError(e.message+' — reload the page to rejoin.');online=false;token=null;events?.close();pendingState=null;document.exitPointerLock();syncActivity(false);}
+function fire(requestFan,now=gameLoop.now()){
  if(!document.pointerLockElement||local.hp<=0||local.reloadUntil||reloading)return;
  if(!local.ammo){reload();return;}
  const fan=requestFan&&now-lastShot<=650;
@@ -204,13 +215,36 @@ function fire(requestFan,now=performance.now()){
  if(online)post('fire',{shotId,fan,muzzle:origin,direction,gunYaw:Math.atan2(-direction.x,-direction.z),gunPitch:Math.asin(clamp(direction.y,-1,1))}).catch(networkError);
 }
 window.addEventListener('mousedown',e=>{if(e.button!==0||document.pointerLockElement!==$('game')||local.hp<=0)return;
- const now=performance.now(),fan=now-lastClick<=FAN_CLICK_WINDOW;lastClick=now;
+ const now=gameLoop.now(),fan=now-lastClick<=FAN_CLICK_WINDOW;lastClick=now;
  if(local.reloadUntil||reloading)return;
  if(fan&&now-lastShot<FAN_INTERVAL+15){queuedFanClick=true;return;}
  fire(fan,now);
 });
-setInterval(()=>{if(!online||inputInFlight)return;inputInFlight=true;const active=!!document.pointerLockElement;post('input',{x:active?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:active?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,gunYaw,gunPitch,jump:active&&keys.has('Space')}).catch(networkError).finally(()=>{inputInFlight=false;});},50);
-function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.05);last=now;const t=(now-started)/1000,locked=!!document.pointerLockElement;
+function sendInput(active=gameLoop.running){
+ if(!online)return;
+ if(inputInFlight){if(!active)stopInputPending=true;return;}
+ inputInFlight=true;
+ post('input',{x:active?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:active?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,gunYaw,gunPitch,jump:active&&keys.has('Space')})
+ .catch(networkError).finally(()=>{inputInFlight=false;if(stopInputPending){stopInputPending=false;sendInput(false);}});
+}
+function syncActivity(allowRun=true){
+ if(!renderReady)return;
+ const active=allowRun!==false&&!document.hidden&&document.hasFocus()&&document.pointerLockElement===$('game');
+ document.body.classList.toggle('playing',active);keys.clear();focusHeld=false;queuedFanClick=false;lastClick=-Infinity;
+ clearInterval(inputTimer);clearInterval(idleTimer);inputTimer=idleTimer=null;
+ if(active){
+  if(pendingState){predictionReady=false;applyState(pendingState);pendingState=null;}
+  last=lastAimFrame=gameLoop.now();gameLoop.start();audio?.resume().catch(()=>{});
+  if(online){sendInput();inputTimer=setInterval(sendInput,50);}
+ }else{
+  gameLoop.stop();audio?.pause().catch(()=>{});displayedAim=frozenAim=null;
+  if(online){
+   for(const p of projectiles)scene.remove(p.round);projectiles.length=0;pendingShots.clear();
+   sendInput(false);idleTimer=setInterval(()=>sendInput(false),5000);
+  }
+ }
+}
+function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now-started)/1000,locked=!!document.pointerLockElement;
  focusBlend+=(Number(focusHeld&&locked&&local.hp>0)-focusBlend)*(1-Math.exp(-12*dt));
  // Input gain uses the actual button state, never the animated focus blend.
  const aimPose={yaw,pitch,lookYaw,lookPitch,freeX,freeY,handYaw,handPitch,previousFreeX,previousFreeY};followAim(aimPose,(now-lastAimFrame)/1000);lastAimFrame=now;({yaw,pitch,handYaw,handPitch,previousFreeX,previousFreeY}=aimPose);
@@ -223,20 +257,23 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k)),lean=locked?(Number(keys.has('KeyE'))-Number(keys.has('KeyQ'))):0;
  walkBlend+=(Number(moving)-walkBlend)*(1-Math.exp(-10*dt));walkPhase+=dt*9*walkBlend;const bob=Math.sin(walkPhase)*.025*walkBlend;
  gunYaw=yaw+handYaw;gunPitch=pitch+handPitch;
- const view=online&&predictionReady?predicted:local;smoothPosition.lerp(new THREE.Vector3(view.x,view.y+1.5,view.z),1-Math.exp(-35*dt));camera.position.copy(smoothPosition);stepRecoil(wristSpring,dt);stepRecoil(cameraSpring,dt);wristTwist*=Math.exp(-10*dt);camera.rotation.set(pitch+cameraSpring.angle,yaw,0,'YXZ');
- const reloadEnd=online?local.reloadUntil:reloading,clock=online?serverTime+now-receivedAt:now;
+ const view=online&&predictionReady?predicted:local;smoothPosition.lerp(positionScratch.set(view.x,view.y+1.5,view.z),1-Math.exp(-35*dt));camera.position.copy(smoothPosition);stepRecoil(wristSpring,dt);stepRecoil(cameraSpring,dt);wristTwist*=Math.exp(-10*dt);camera.rotation.set(pitch+cameraSpring.angle,yaw,0,'YXZ');
+ const reloadEnd=online?local.reloadUntil:reloading;
  placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd});
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');
  animateRevolver(gun,now,dt);
  flashLife=Math.max(0,.065-(now-lastShot)/1000);flash.visible=gapFlash.visible=flashLife>0;const flashPower=(flashLife/.065)**1.5;muzzleLight.intensity=32*flashPower;flashOuterMaterial.opacity=.9*flashPower;flashCoreMaterial.opacity=flashPower;barrelHeat*=Math.exp(-1.6*dt);
  // Shots add exposure energy; the screen glow eases up and gently recovers.
  // Keep this separate from the short, physical muzzle flash.
+ if(shotExposure.energy>0||shotExposure.visible>0){
  shotExposure.energy*=Math.exp(-1.5*dt);
  shotExposure.visible+=(shotExposure.energy-shotExposure.visible)*(1-Math.exp(-(shotExposure.energy>shotExposure.visible?12:4.5)*dt));
+ if(shotExposure.energy<.0001&&shotExposure.visible<.0001)shotExposure.energy=shotExposure.visible=0;
  shotVignette.style.opacity=String(shotExposure.visible*.55);
  shotVignette.style.setProperty('--shot-clear',`${64-shotExposure.visible*24}%`);
+ }
  for(const target of targets.values()){const age=t-target.hitAt;target.group.rotation.x=age<.5?Math.sin(age*32)*.12*Math.exp(-age*8):0;target.face.material.emissive.setHex(age<.16?0x664018:0x000000);}
- for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(new THREE.Vector3(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;animateRevolver(g.userData.revolver,now,dt);}}
+ for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(positionScratch.set(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;animateRevolver(g.userData.revolver,now,dt);}}
  for(let i=projectiles.length-1;i>=0;i--){const p=projectiles[i],age=(now-p.born)/1000,progress=projectileProgress(p.distance,age);
   p.round.position.copy(p.origin).addScaledVector(p.direction,p.distance*progress);p.round.visible=progress<1;
   if(progress===1&&(p.confirmed||age>2)){if(p.confirmed)impactEffect(p.result,now);scene.remove(p.round);if(pendingShots.get(p.result.shotId)===p)pendingShots.delete(p.result.shotId);projectiles.splice(i,1);}
@@ -244,24 +281,31 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  for(const p of particlePool){if(p.life<=0)continue;p.life=Math.max(0,p.life-dt);p.mesh.visible=p.life>0;p.velocity.y+=(p.smoke?.4:-8)*dt;p.mesh.position.addScaledVector(p.velocity,dt);
  const progress=1-p.life/p.total;p.mesh.material.opacity=(1-progress)*(p.smoke?.045:1);p.mesh.scale.setScalar(p.smoke?.35+progress*1.3:1-progress*.6);
  }
- const liveAim=captureAim();displayedAim=frozenAim&&now<frozenAim.until?frozenAim:liveAim;
- const muzzleUV=liveAim.origin.clone().project(camera);colorShift.uniforms.muzzleUV.value.set(muzzleUV.x*.5+.5,muzzleUV.y*.5+.5);
- colorShift.uniforms.blast.value=lastShot>0?Math.exp(-Math.max(0,now-lastShot)/32):0;
+ const aimOpacity=locked&&local.hp>0&&!reloadEnd?focusBlend:0;
+ aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;
+ const liveAim=aimBeam.visible?captureAim():null;
+ displayedAim=liveAim?(frozenAim&&now<frozenAim.until?frozenAim:liveAim):null;
+ colorShift.uniforms.blast.value=Math.exp(-Math.max(0,now-lastShot)/32);
+ if(colorShift.uniforms.blast.value>.001){const muzzleUV=uvScratch.copy(liveAim?.origin??captureBarrelRay(gun).origin).project(camera);colorShift.uniforms.muzzleUV.value.set(muzzleUV.x*.5+.5,muzzleUV.y*.5+.5);}
+ colorShift.uniforms.heat.value=0;
+ if(displayedAim){
  const beamOrigin=displayedAim.origin,beamDirection=displayedAim.direction;
- const beamEnd=beamOrigin.clone().addScaledVector(beamDirection,displayedAim.result.distance);
+ const beamEnd=beamEndScratch.copy(beamOrigin).addScaledVector(beamDirection,displayedAim.result.distance);
  const beamPositions=aimGeometry.attributes.position;beamPositions.setXYZ(0,beamOrigin.x,beamOrigin.y,beamOrigin.z);beamPositions.setXYZ(1,beamEnd.x,beamEnd.y,beamEnd.z);beamPositions.needsUpdate=true;
- const aimOpacity=locked&&local.hp>0&&!reloadEnd?focusBlend:0;aimMaterial.opacity=.6*aimOpacity;
- const startUV=beamOrigin.clone().project(camera),endUV=beamEnd.clone().project(camera);
- colorShift.uniforms.aimStart.value.set(startUV.x*.5+.5,startUV.y*.5+.5);colorShift.uniforms.aimEnd.value.set(endUV.x*.5+.5,endUV.y*.5+.5);
- colorShift.uniforms.heat.value=aimOpacity*(.25+barrelHeat*.75)*clamp(beamDirection.dot(camera.getWorldDirection(new THREE.Vector3()))/.2,0,1);colorShift.uniforms.time.value=t;
+ const startUV=uvScratch.copy(beamOrigin).project(camera);colorShift.uniforms.aimStart.value.set(startUV.x*.5+.5,startUV.y*.5+.5);
+ const endUV=uvScratch.copy(beamEnd).project(camera);colorShift.uniforms.aimEnd.value.set(endUV.x*.5+.5,endUV.y*.5+.5);
+ colorShift.uniforms.heat.value=aimOpacity*(.25+barrelHeat*.75)*clamp(beamDirection.dot(camera.getWorldDirection(directionScratch))/.2,0,1);
+ }
+ colorShift.uniforms.time.value=t;
  if(queuedFanClick&&now-lastShot>=FAN_INTERVAL+15){queuedFanClick=false;fire(true,now);}
  colorShift.uniforms.strength.value=shotExposure.visible*.5;
- renderer.setRenderTarget(shotBuffer);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.render(screenScene,screenCamera);
+ renderScene();
 }
-function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);const size=renderer.getDrawingBufferSize(new THREE.Vector2());shotBuffer.setSize(size.x,size.y);colorShift.uniforms.aspect.value=camera.aspect;}
+function renderScene(){renderer.setRenderTarget(shotBuffer);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.render(screenScene,screenCamera);}
+function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setPixelRatio(Math.min(devicePixelRatio,1.5,Math.sqrt(2560*1440/(innerWidth*innerHeight))));renderer.setSize(innerWidth,innerHeight);const size=renderer.getDrawingBufferSize(new THREE.Vector2());shotBuffer.setSize(size.x,size.y);colorShift.uniforms.aspect.value=camera.aspect;if(renderReady&&!gameLoop.running)renderScene();}
 window.addEventListener('resize',resize);resize();camera.position.set(0,1.5,8);
 // Compile both passes and the pooled particle materials before play so the
 // first shot/aim does not pause movement to compile new effects.
 renderer.setRenderTarget(shotBuffer);await renderer.compileAsync(scene,camera);
 renderer.setRenderTarget(null);await renderer.compileAsync(screenScene,screenCamera);
-last=performance.now();let lastAimFrame=last;requestAnimationFrame(frame);
+renderReady=true;frame(gameLoop.now());syncActivity();

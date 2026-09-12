@@ -32,5 +32,6 @@ test('multiplayer shares room state, isolates rooms, enforces ammo and reload',a
  await new Promise(r=>setTimeout(r,125));await post('fire',{token:a.token,fan:true});s=await state(a.token);assert.equal(s.players.find(p=>p.id===a.id).ammo,4);
  await post('reload',{token:a.token});await post('fire',{token:a.token,fan:true});s=await state(a.token);assert.equal(s.players.find(p=>p.id===a.id).ammo,4);
  assert.equal((await fetch('http://localhost:3099/.git/config')).status,404);
+ const loopModule=await fetch('http://localhost:3099/game-loop.js');assert.equal(loopModule.status,200);assert.match(loopModule.headers.get('content-type'),/javascript/);assert.match(await loopModule.text(),/export function createGameLoop/);
  }finally{controllers.forEach(c=>c.abort());child.kill();}
 });
