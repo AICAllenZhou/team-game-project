@@ -2,6 +2,8 @@ import * as THREE from './vendor/three.module.js';
 import {createWeaponAudio} from './weapon-audio.js';
 import {createGameLoop} from './game-loop.js';
 import {batchMeshes,createParticles} from './render-batches.js';
+import {createSkeetRange,clayPose} from './skeet.mjs';
+import {createSkeetView} from './skeet-view.js';
 import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil,captureBarrelRay} from './weapon-pose.js';
 import {move,TRAINING_TARGETS,traceShot,PROJECTILE_SPEED,projectileProgress,predictionCorrection,settlePrediction,FAN_INTERVAL,FAN_CLICK_WINDOW} from './simulation.mjs';
 const $=id=>document.getElementById(id);
@@ -67,8 +69,7 @@ for(let i=0;i<20;i++){const a=i*2.399,r=65+(i%3)*12;const rock=mesh(new THREE.Co
 function revolver(parent){const g=new THREE.Group();parent.add(g);box(.12,.14,.32,steel,g,0,0,-.05);box(.085,.09,.34,steel,g,0,.025,-.35);
  const cylinderPivot=new THREE.Group();cylinderPivot.position.set(0,.005,-.04);g.add(cylinderPivot);
  const cylinder=mesh(new THREE.CylinderGeometry(.095,.095,.17,12),steel,cylinderPivot);cylinder.rotation.x=Math.PI/2;
- const dark=mat(0x242725);for(let i=0;i<6;i++){const a=i*Math.PI/3;const chamber=mesh(new THREE.CylinderGeometry(.018,.018,.012,8),dark,cylinderPivot,Math.cos(a)*.064,Math.sin(a)*.064,-.09);chamber.rotation.x=Math.PI/2;}
- const grip=box(.1,.23,.12,wood,g,0,-.16,.08);grip.rotation.x=-.25;box(.025,.04,.025,steel,g,0,.09,-.49);
+ const grip=box(.1,.23,.12,wood,g,0,-.16,.08);grip.rotation.x=-.25;
  // Small SAA-style hammer: the pivot and lower shank sit inside the rear
  // frame, with only the narrow head and thumb spur protruding above it.
  const hammer=new THREE.Group();hammer.position.set(0,-.012,.087);g.add(hammer);
@@ -88,7 +89,7 @@ function animateRevolver(g,now,dt){const data=g.userData;
  if(data.fanHand.visible){const stroke=Math.sin(Math.min(1,fanAge/.13)*Math.PI),exit=Math.max(0,(fanAge-.15)/.19);data.fanHand.position.set(-.33+stroke*.35-exit*.2,.1+stroke*.01-exit*.2,.15);}
 }
 function cockRevolver(g,now,fan){const data=g.userData;data.hammer.rotation.x=0;data.cylinderFrom=data.cylinderTarget;data.cylinderTarget+=Math.PI/3;data.firedAt=now;data.fanning=fan;if(fan)data.fanAt=now;}
-function cowboy(color){const g=new THREE.Group();mesh(new THREE.CapsuleGeometry(.42,.96,4,8),mat(color),g,0,.9,0);mesh(new THREE.CylinderGeometry(.67,.67,.09,10),hat,g,0,1.79,0);mesh(new THREE.CylinderGeometry(.34,.38,.3,8),hat,g,0,1.95,0);box(.74,.1,.08,wood,g,0,.76,-.32);
+function cowboy(color){const g=new THREE.Group();mesh(new THREE.CapsuleGeometry(.42,.96,4,8),mat(color),g,0,.9,0);mesh(new THREE.CylinderGeometry(.67,.67,.09,10),hat,g,0,1.79,0);mesh(new THREE.CylinderGeometry(.34,.38,.3,8),hat,g,0,1.95,0);
  const right=new THREE.Group();right.position.set(.4,1.15,-.55);g.add(right);mesh(new THREE.SphereGeometry(.13,8,6),skin,right,0,-.13,.07);g.userData.revolver=revolver(right);
  batchMeshes(g);g.userData.rightHand=right;scene.add(g);return g;}
 const rig=new THREE.Group();camera.add(rig);
@@ -132,6 +133,10 @@ const keys=new Set(),peers=new Map(),projectiles=[];let audio;
 const pendingShots=new Map();let shotSequence=0,barrelHeat=0;
 let displayedAim=null,frozenAim=null,lastClick=-Infinity,queuedFanClick=false;
 const particles=createParticles(scene),emitParticles=particles.emit;
+const skeetRange=createSkeetRange(),skeetView=createSkeetView(scene);let serverClays=[];
+const clayCandidates=Array.from({length:3},()=>({})),liveClays=[];
+function skeetTime(){return online?serverTime+gameLoop.now()-receivedAt:gameLoop.now();}
+function launchClay(){if(!gameLoop.running||local.hp<=0)return;if(online)post('launch').catch(networkError);else skeetRange.launch(gameLoop.now());}
 const roundGeometry=new THREE.CapsuleGeometry(.045,.4,3,8),roundMaterial=new THREE.MeshBasicMaterial({color:0xffedb0});
 const glowMaterial=new THREE.MeshBasicMaterial({color:0xffb744,transparent:true,opacity:.22,depthWrite:false});
 let focusHeld=false,focusBlend=0;
@@ -147,7 +152,9 @@ const practiceCandidates=dummies.map((g,i)=>({id:`dummy-${i}`,x:g.position.x,y:g
 function captureAim(){const {origin,direction}=captureBarrelRay(gun);
  const candidates=online?shotCandidates:practiceCandidates;
  if(online){shotCandidates.length=0;for(const g of peers.values())if(g.userData.target)shotCandidates.push(g.userData.target);}
- return {origin,direction,result:traceShot(origin,direction,candidates)};
+ liveClays.length=0;const flights=online?serverClays:skeetRange.flights,now=skeetTime();
+ for(let i=0;i<flights.length;i++)liveClays.push(clayPose(flights[i],now,clayCandidates[i]));
+ return {origin,direction,result:traceShot(origin,direction,candidates,liveClays)};
 }
 function sound(){try{audio?.play();}catch{}}
 async function post(path,data={}){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,...data})});if(!r.ok)throw Error(await r.text()||'Connection lost');return r.status===204?null:r.json();}
@@ -163,6 +170,7 @@ function shotEffect(s,predicted=false){
  projectiles.push(flight);if(predicted)pendingShots.set(s.shotId,flight);
 }
 function impactEffect(result,now){
+ if(result.clayId){if(!online){const broken=skeetRange.breakClay(result.clayId,now,result.direction);if(broken)skeetView.shatter(broken,now);}return;}
  if(result.targetId&&targets.has(result.targetId))targets.get(result.targetId).hitAt=(now-started)/1000;
  if(!result.surface)return;
  const normal=new THREE.Vector3(result.normal.x,result.normal.y,result.normal.z),point=new THREE.Vector3(result.point.x,result.point.y,result.point.z).addScaledVector(normal,.03);
@@ -170,6 +178,7 @@ function impactEffect(result,now){
  emitParticles(point,normal,0xa99e87,2,true);
 }
 function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt=gameLoop.now();const mine=s.players.find(p=>p.id===id);if(!mine)return;
+ serverClays=s.clays||[];
  renderer.shadowMap.needsUpdate=true;
  if(!predictionReady||(!local.hp&&mine.hp>0)){Object.assign(predicted,{x:mine.x,y:mine.y,z:mine.z,vy:0,vx:0,vz:0,correctionVX:0,correctionVZ:0});correction={x:0,z:0};smoothPosition.set(mine.x,mine.y+1.5,mine.z);predictionReady=true;}
  else correction=predictionCorrection(predicted,mine);
@@ -189,7 +198,7 @@ $('play').onclick=async()=>{
  if(!token){joining=true;$('play').disabled=true;try{
  const r=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Drifter',room:'frontier'})});
  if(r.status===404||r.status===405){online=false;}
- else {if(!r.ok)throw Error(await r.text());const data=await r.json();token=data.token;id=data.id;online=true;events=new EventSource('/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>{const state=JSON.parse(e.data);if(gameLoop.running)applyState(state);else pendingState=state;});events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));dummies.forEach(g=>g.visible=false);}
+ else {if(!r.ok)throw Error(await r.text());const data=await r.json();token=data.token;id=data.id;online=true;events=new EventSource('/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>{const state=JSON.parse(e.data);if(gameLoop.running)applyState(state);else pendingState=state;});events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));events.addEventListener('clayBreak',e=>{const broken=JSON.parse(e.data);serverClays=serverClays.filter(f=>f.id!==broken.id);if(gameLoop.running)skeetView.shatter(broken,gameLoop.now());});dummies.forEach(g=>g.visible=false);}
  }catch(e){joinError('Could not join: '+e.message);joining=false;$('play').disabled=false;return;}joining=false;$('play').disabled=false;}
  try{try{await $('game').requestPointerLock({unadjustedMovement:true});}catch(e){if(e.name!=='NotSupportedError')throw e;await $('game').requestPointerLock();}}catch{joinError('Click Join again to capture the mouse.');syncActivity(false);}
 };
@@ -203,6 +212,7 @@ window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockEle
 window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;});
 $('game').addEventListener('contextmenu',e=>e.preventDefault());
 window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='KeyR'&&document.pointerLockElement)reload();});
+window.addEventListener('keydown',e=>{if(e.code==='KeyF'&&!e.repeat){e.preventDefault();launchClay();}});
 window.addEventListener('keyup',e=>{keys.delete(e.code);});window.addEventListener('blur',()=>{document.exitPointerLock();syncActivity(false);});
 function reload(){queuedFanClick=false;if(online){post('reload').catch(networkError);}else if(!reloading&&local.ammo<6)reloading=gameLoop.now()+1800;}
 function networkError(e){joinError(e.message+' — reload the page to rejoin.');online=false;token=null;events?.close();pendingState=null;document.exitPointerLock();syncActivity(false);}
@@ -286,6 +296,8 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
   if(progress===1&&(p.confirmed||age>2)){if(p.confirmed)impactEffect(p.result,now);scene.remove(p.round);if(pendingShots.get(p.result.shotId)===p)pendingShots.delete(p.result.shotId);projectiles.splice(i,1);}
  }
  particles.update(dt);
+ if(!online)for(const broken of skeetRange.update(now))skeetView.shatter(broken,now);
+ skeetView.update(online?serverClays:skeetRange.flights,skeetTime(),dt,now);
  const aimOpacity=locked&&local.hp>0&&!reloadEnd?focusBlend:0;
  aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;
  const liveAim=aimBeam.visible?captureAim():null;

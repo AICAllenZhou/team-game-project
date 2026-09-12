@@ -34,5 +34,9 @@ test('multiplayer shares room state, isolates rooms, enforces ammo and reload',a
  assert.equal((await fetch('http://localhost:3099/.git/config')).status,404);
  const loopModule=await fetch('http://localhost:3099/game-loop.js');assert.equal(loopModule.status,200);assert.match(loopModule.headers.get('content-type'),/javascript/);assert.match(await loopModule.text(),/export function createGameLoop/);
  const batchesModule=await fetch('http://localhost:3099/render-batches.js');assert.equal(batchesModule.status,200);assert.match(batchesModule.headers.get('content-type'),/javascript/);
+ for(const file of ['skeet.mjs','skeet-view.js'])assert.equal((await fetch('http://localhost:3099/'+file)).status,200);
+ await post('launch',{token:a.token});await post('launch',{token:b.token});
+ const shared=await state(b.token);assert.equal(shared.clays.length,1);assert.ok(shared.clays[0].vz<0);
+ assert.equal((await state(c.token)).clays.length,0);
  }finally{controllers.forEach(c=>c.abort());child.kill();}
 });

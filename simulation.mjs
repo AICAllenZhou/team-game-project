@@ -1,3 +1,4 @@
+import {LAUNCHER,clayHit} from './skeet.mjs';
 export const LIMIT=27, SPEED=4.5;
 export const TRAINING_TARGETS=[-4,0,4].map((x,i)=>({id:`target-${i}`,x,y:1.6,z:0,radius:.55}));
 export function targetHit(origin,direction,target){
@@ -42,6 +43,7 @@ export function settlePrediction(position,error,dt){
  position.x+=dx;position.z+=dz;error.x-=dx;error.z-=dz;
 }
 const arenaBoxes=[{x:0,y:-.26,z:0,w:56,h:.5,d:56}];
+arenaBoxes.push({x:LAUNCHER.x,y:.3,z:LAUNCHER.z,w:1,h:.6,d:1.1});
 for(const side of [-1,1]){
  arenaBoxes.push({x:0,y:.08,z:side*27.8,w:56,h:.16,d:.18},{x:side*27.8,y:.08,z:0,w:.18,h:.16,d:56});
  for(let i=-24;i<=24;i+=8)arenaBoxes.push({x:i,y:.6,z:side*28,w:.22,h:1.2,d:.22},{x:side*28,y:.6,z:i,w:.22,h:1.2,d:.22});
@@ -62,12 +64,13 @@ function boxHit(origin,direction,box){
 
 // Shared by multiplayer and practice so bullets and markers stop at the same
 // actual surface, including the base plate, fences and target stands.
-export function traceShot(origin,direction,players=[]){
- let distance=70,hit=null,targetId=null,surface=null,normal=null;
+export function traceShot(origin,direction,players=[],clays=[]){
+ let distance=70,hit=null,targetId=null,clayId=null,surface=null,normal=null;
  for(const box of arenaBoxes){const result=boxHit(origin,direction,box);if(result&&result.distance<distance){distance=result.distance;normal=result.normal;surface='world';}}
  for(const target of TRAINING_TARGETS){const d=targetHit(origin,direction,target);if(d<distance){distance=d;targetId=target.id;surface='target';normal={x:(origin.x+direction.x*d-target.x)/target.radius,y:(origin.y+direction.y*d-target.y)/target.radius,z:(origin.z+direction.z*d-target.z)/target.radius};}}
  for(const player of players){if(player.hp<=0)continue;const d=rayHit(origin,direction,player);if(d<distance){distance=d;hit=player.id;targetId=null;surface='player';normal={x:-direction.x,y:-direction.y,z:-direction.z};}}
- return {distance,hit,targetId,surface,normal,point:{x:origin.x+direction.x*distance,y:origin.y+direction.y*distance,z:origin.z+direction.z*distance}};
+ for(const clay of clays){const d=clayHit(origin,direction,clay);if(d<distance){distance=d;hit=targetId=null;clayId=clay.id;surface='clay';normal={x:-direction.x,y:-direction.y,z:-direction.z};}}
+ return {distance,hit,targetId,clayId,surface,normal,point:{x:origin.x+direction.x*distance,y:origin.y+direction.y*distance,z:origin.z+direction.z*distance}};
 }
 export function move(p,input,dt){
  const x=Math.max(-1,Math.min(1,Number(input.x)||0)),z=Math.max(-1,Math.min(1,Number(input.z)||0));

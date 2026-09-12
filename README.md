@@ -20,7 +20,7 @@ Camera sensitivity is constant across the entire hand range, with RMB selecting 
 
 Install Node.js 22 or newer, then run `node server.mjs` and open `http://localhost:3000`. No package installation or build is needed. Players on the same network can open `http://YOUR-LAN-IP:3000` and enter the same room name. Each room supports 12 players. To play over the internet, deploy this Node server to a host supporting long-lived HTTP/SSE connections and share its HTTPS URL. Allow the server port through your firewall only as needed.
 
-Controls: WASD move, mouse free-aim/turn, hold RMB for the aiming beam, left click fire, double-click/rapid clicks fan-fire, Q/E lean, R reload, Space jump, Tab scoreboard, Esc pause/release mouse. Desktop keyboard/mouse and WebGL are required. Click Enter again if the browser requires a second gesture to capture the mouse.
+Controls: WASD move, mouse free-aim/turn, hold RMB for the aiming beam, left click fire, double-click/rapid clicks fan-fire, Q/E lean, R reload, F launch a clay, Space jump, Esc pause/release mouse. Desktop keyboard/mouse and WebGL are required. Click Join again if the browser requires a second gesture to capture the mouse.
 
 The Node server owns movement, ammunition, fire rate, barrel-direction hit detection and respawns. The local client renders each shot as a fast physical-looking round rather than an instant tracer line. This is an early prototype: no accounts, persistence, matchmaking, lag compensation or production anti-abuse protections. The arena is intentionally an open base plate for the team's later map/environment work.
 
@@ -48,3 +48,5 @@ Team members can clone the repository, create a branch for their work, and open 
 
 ## Vercel
 Import this repository into Vercel. The included vercel.json builds the browser game automatically with node build-static.mjs and serves dist/. This deployment supports local practice. Multiplayer still requires the persistent Node server (node server.mjs); its in-memory rooms and continuous simulation are not deployed as Vercel Functions.
+
+The small rectangular skeet machine ahead of spawn launches one clay when you press F. Flights go upward and away with slight direction/speed variation, gravity and drag. Shot clays break into pooled tumbling fragments that inherit momentum and bounce on the floor; missed clays break when they land. Launches are limited to one per second and three active clays. Multiplayer shares the machine within each room; practice flight timers stop when paused.
