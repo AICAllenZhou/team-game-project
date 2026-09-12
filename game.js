@@ -1,4 +1,5 @@
 import * as THREE from './vendor/three.module.js';
+import {createWeaponAudio} from './weapon-audio.js';
 import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil,captureBarrelRay} from './weapon-pose.js';
 import {move,TRAINING_TARGETS,traceShot,PROJECTILE_SPEED,projectileProgress,predictionCorrection,settlePrediction,FAN_INTERVAL,FAN_CLICK_WINDOW} from './simulation.mjs';
 const $=id=>document.getElementById(id);
@@ -52,15 +53,21 @@ function revolver(parent){const g=new THREE.Group();parent.add(g);box(.12,.14,.3
  const cylinder=mesh(new THREE.CylinderGeometry(.095,.095,.17,12),steel,cylinderPivot);cylinder.rotation.x=Math.PI/2;
  const dark=mat(0x242725);for(let i=0;i<6;i++){const a=i*Math.PI/3;const chamber=mesh(new THREE.CylinderGeometry(.018,.018,.012,8),dark,cylinderPivot,Math.cos(a)*.064,Math.sin(a)*.064,-.09);chamber.rotation.x=Math.PI/2;}
  const grip=box(.1,.23,.12,wood,g,0,-.16,.08);grip.rotation.x=-.25;box(.025,.04,.025,steel,g,0,.09,-.49);
- const hammer=new THREE.Group();hammer.position.set(0,.09,.075);g.add(hammer);box(.035,.06,.05,steel,hammer,0,.025,.015);
+ const hammer=new THREE.Group();hammer.position.set(0,.07,.12);g.add(hammer);
+ box(.045,.08,.035,steel,hammer,0,.03,0);
+ const spur=box(.075,.027,.08,steel,hammer,0,.075,.026);spur.rotation.x=-.25;
+ box(.045,.035,.03,steel,hammer,0,.065,-.023);hammer.rotation.x=.62;
  const fanHand=new THREE.Group();g.add(fanHand);mesh(new THREE.SphereGeometry(.115,8,6),skin,fanHand);fanHand.visible=false;
  Object.assign(g.userData,{cylinderPivot,cylinderTarget:0,hammer,fanHand,firedAt:-1000,fanAt:-1000});return g;}
 function animateRevolver(g,now,dt){const data=g.userData;data.cylinderPivot.rotation.z+=(data.cylinderTarget-data.cylinderPivot.rotation.z)*(1-Math.exp(-32*dt));
- const age=(now-data.firedAt)/1000;data.hammer.rotation.x=age<.1?-.6*Math.sin(age/.1*Math.PI):0;
+ const age=Math.max(0,(now-data.firedAt)/1000),recockStart=data.fanning?.035:.075,recockTime=data.fanning?.065:.13;
+ const ease=x=>{const a=Math.max(0,Math.min(1,x));return a*a*(3-2*a);};
+ // Release from cocked to striking position, then pull back for the next shot.
+ data.hammer.rotation.x=age<.022?.62*(1-ease(age/.022)):.62*ease((age-recockStart)/recockTime);
  const fanAge=(now-data.fanAt)/1000;data.fanHand.visible=fanAge<.34;
  if(data.fanHand.visible){const stroke=Math.sin(Math.min(1,fanAge/.13)*Math.PI),exit=Math.max(0,(fanAge-.15)/.19);data.fanHand.position.set(-.33+stroke*.35-exit*.2,.12+stroke*.04-exit*.2,.15);}
 }
-function cockRevolver(g,now,fan){g.userData.cylinderTarget+=Math.PI/3;g.userData.firedAt=now;if(fan)g.userData.fanAt=now;}
+function cockRevolver(g,now,fan){g.userData.cylinderTarget+=Math.PI/3;g.userData.firedAt=now;g.userData.fanning=fan;if(fan)g.userData.fanAt=now;}
 function cowboy(color){const g=new THREE.Group();mesh(new THREE.CapsuleGeometry(.42,.96,4,8),mat(color),g,0,.9,0);mesh(new THREE.CylinderGeometry(.67,.67,.09,10),hat,g,0,1.79,0);mesh(new THREE.CylinderGeometry(.34,.38,.3,8),hat,g,0,1.95,0);box(.74,.1,.08,wood,g,0,.76,-.32);
  const right=new THREE.Group();right.position.set(.4,1.15,-.55);g.add(right);mesh(new THREE.SphereGeometry(.13,8,6),skin,right,0,-.13,.07);g.userData.revolver=revolver(right);
  g.userData.rightHand=right;scene.add(g);return g;}
@@ -118,7 +125,7 @@ function captureAim(){const {origin,direction}=captureBarrelRay(gun);
  const candidates=online?[...peers.values()].map(g=>g.userData.target).filter(Boolean):dummies.map((g,i)=>({id:`dummy-${i}`,x:g.position.x,y:g.position.y,z:g.position.z,hp:100}));
  return {origin,direction,result:traceShot(origin,direction,candidates)};
 }
-function sound(){try{audio??=new AudioContext();audio.resume();const n=audio.createBufferSource(),b=audio.createBuffer(1,audio.sampleRate*.14,audio.sampleRate),a=b.getChannelData(0);for(let i=0;i<a.length;i++)a[i]=(Math.random()*2-1)*(1-i/a.length)**2.1;n.buffer=b;const filter=audio.createBiquadFilter();filter.type='lowpass';filter.frequency.value=1150;const gain=audio.createGain();gain.gain.value=.23;n.connect(filter).connect(gain).connect(audio.destination);n.start();}catch{}}
+function sound(){try{audio?.play();}catch{}}
 async function post(path,data={}){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,...data})});if(!r.ok)throw Error(await r.text()||'Connection lost');return r.status===204?null:r.json();}
 function shotEffect(s,predicted=false){
  if(s.id!==id&&peers.has(s.id))cockRevolver(peers.get(s.id).userData.revolver,performance.now(),s.fan);
@@ -154,6 +161,7 @@ function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt
 }
 $('play').onclick=async()=>{
  if(joining)return;
+ try{audio??=createWeaponAudio();audio.resume().catch(()=>{});}catch{}
  if(!matchMedia('(pointer:fine)').matches){$('error').textContent='This prototype needs a keyboard and mouse.';return;}
  $('error').textContent='';
  if(!token){joining=true;$('play').disabled=true;try{
