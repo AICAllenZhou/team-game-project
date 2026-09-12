@@ -84,6 +84,7 @@ const aimGeometry=new THREE.BufferGeometry();aimGeometry.setAttribute('position'
 const aimMaterial=new THREE.LineBasicMaterial({color:0xffdf9b,transparent:true,opacity:0,depthWrite:false});
 const aimBeam=new THREE.Line(aimGeometry,aimMaterial);aimBeam.frustumCulled=false;scene.add(aimBeam);
 const shotVignette=document.createElement('div');shotVignette.className='shot-vignette';document.body.append(shotVignette);
+const shotExposure={energy:0,visible:0};
 const targets=new Map();
 for(const target of TRAINING_TARGETS){
  const g=new THREE.Group();scene.add(g);g.position.set(target.x,target.y,target.z);
@@ -182,6 +183,7 @@ function fire(requestFan,now=performance.now()){
  const aim=displayedAim||captureAim(),origin=aim.origin.clone(),direction=aim.direction.clone(),result=aim.result;
  frozenAim={origin:origin.clone(),direction:direction.clone(),result,until:now+90};
  lastShot=now;cockRevolver(gun,now,fan);kickRecoil(wristSpring,fan);wristTwist+=(Math.random()-.35)*(fan?.135:.12);cameraSpring.velocity=Math.min(2,cameraSpring.velocity+1.1);sound();flashLife=.055;flash.visible=gapFlash.visible=true;flashOuterMaterial.opacity=.7;flashCoreMaterial.opacity=1;flash.rotation.z=Math.random()*Math.PI;flash.scale.set(1,1,.85+Math.random()*.4);muzzleLight.intensity=20;barrelHeat=Math.min(1,barrelHeat+.45);
+ shotExposure.energy=Math.min(1.2,shotExposure.energy+.38);
  emitParticles(origin,direction,0xffd684,4,false);emitParticles(origin,direction,0xaaa396,2,true);
  const shotId=String(++shotSequence);shotEffect({id:online?id:'local',shotId,origin,direction,...result,fan},online);
  local.ammo--;$('ammo').textContent=local.ammo;
@@ -213,7 +215,12 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');
  animateRevolver(gun,now,dt);
  flashLife=Math.max(0,.065-(now-lastShot)/1000);flash.visible=gapFlash.visible=flashLife>0;const flashPower=(flashLife/.065)**1.5;muzzleLight.intensity=32*flashPower;flashOuterMaterial.opacity=.9*flashPower;flashCoreMaterial.opacity=flashPower;barrelHeat*=Math.exp(-1.6*dt);
- shotVignette.style.opacity=String(Math.max(flashPower*.6,Math.max(0,wristSpring.angle)*.14));
+ // Shots add exposure energy; the screen glow eases up and gently recovers.
+ // Keep this separate from the short, physical muzzle flash.
+ shotExposure.energy*=Math.exp(-1.5*dt);
+ shotExposure.visible+=(shotExposure.energy-shotExposure.visible)*(1-Math.exp(-(shotExposure.energy>shotExposure.visible?12:4.5)*dt));
+ shotVignette.style.opacity=String(shotExposure.visible*.55);
+ shotVignette.style.setProperty('--shot-clear',`${64-shotExposure.visible*24}%`);
  for(const target of targets.values()){const age=t-target.hitAt;target.group.rotation.x=age<.5?Math.sin(age*32)*.12*Math.exp(-age*8):0;target.face.material.emissive.setHex(age<.16?0x664018:0x000000);}
  $('reload').textContent=reloadEnd?'RELOADING':'R · RELOAD';
  $('notice').textContent=local.hp<=0?`BACK IN ${Math.max(1,Math.ceil((local.deadUntil-clock)/1000))}`:'';
@@ -237,7 +244,7 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  colorShift.uniforms.heat.value=aimOpacity*(.25+barrelHeat*.75)*clamp(beamDirection.dot(camera.getWorldDirection(new THREE.Vector3()))/.2,0,1);colorShift.uniforms.time.value=t;
  if(queuedFanClick&&now-lastShot>=FAN_INTERVAL+15){queuedFanClick=false;fire(true,now);}
  $('time').textContent=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;
- colorShift.uniforms.strength.value=Math.max(0,1-(now-lastShot)/160);
+ colorShift.uniforms.strength.value=shotExposure.visible*.5;
  renderer.setRenderTarget(shotBuffer);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.render(screenScene,screenCamera);
 }
 function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);const size=renderer.getDrawingBufferSize(new THREE.Vector2());shotBuffer.setSize(size.x,size.y);colorShift.uniforms.aspect.value=camera.aspect;}
