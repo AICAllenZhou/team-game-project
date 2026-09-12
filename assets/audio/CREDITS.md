@@ -1,14 +1,17 @@
-# Heavy handgun sound
+# Lossless revolver source
 
-Source: “Desert Eagle Gunshot” by elliotlp, Freesound (2015).
-https://freesound.org/people/elliotlp/sounds/330634/
-Public HQ preview: https://cdn.freesound.org/previews/330/330634_2017016-hq.mp3
-Derived by its author from “357Mag.wav” by Jon285 (also CC0):
-https://freesound.org/people/Jon285/sounds/49512/
+The Free Firearm Sound Library (2014), by Ben Jaszczak, Brian Nelson,
+Kevin Heras and Matthew Nanney.
+https://opengameart.org/content/the-free-firearm-sound-library
+Archive: https://opengameart.org/sites/default/files/Prepared%20SFX%20Library.7z
 License: CC0 1.0 — https://creativecommons.org/publicdomain/zero/1.0/
 
-revolver-1.wav, revolver-2.wav and revolver-3.wav are gain variants of
-this designed handgun sound, trimmed to 0.56 seconds, with reduced upper
-midrange, added low body, compression, peak limiting and a short fade.
-Exported as 48 kHz stereo PCM. This is a Desert Eagle-style effect built
-from a .357 recording, not an authenticated Desert Eagle field recording.
+Original file: Prepared SFX Library/Smith & Wesson 642/V_27P.wav
+Source format: 96 kHz, 24-bit PCM stereo. Library metadata identifies a
+Smith & Wesson 642 .38 Special revolver, near distance, front of shooter.
+
+Edits: two 0.85-second shot excerpts; select the right microphone channel
+(less peak overload than the left) and center it; reduce gain to retain
+headroom; fade the last 0.35 seconds. Third file is a softer gain variant.
+Export: 48 kHz 16-bit PCM WAV. No lossy preview source, time stretching,
+bass boost, denoising, saturation, compression, limiting or added echo.
