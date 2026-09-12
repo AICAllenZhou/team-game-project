@@ -5,4 +5,5 @@ for(const file of ['index.html','style.css','game.js','weapon-pose.js','weapon-a
   await copyFile(new URL(file,root),new URL(file,out));
 }
 await cp(new URL('vendor/',root),new URL('vendor/',out),{recursive:true});
+await cp(new URL('assets/',root),new URL('assets/',out),{recursive:true});
 console.log('Built DUSTLINE static practice mode in dist/');

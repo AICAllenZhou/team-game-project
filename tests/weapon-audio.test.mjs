@@ -1,18 +1,21 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {makeShotSamples} from '../weapon-audio.js';
+import {readFile} from 'node:fs/promises';
+import {SHOT_FILES} from '../weapon-audio.js';
 
-test('shot audio has a strong transient, diffuse decay and no clipping at common sample rates',()=>{
- for(const rate of [44100,48000])for(const seed of [7,193,421,997]){
-  const channels=makeShotSamples(rate,seed);
-  const rms=(a,start,end)=>{let sum=0;for(let i=Math.floor(start*rate);i<Math.floor(end*rate);i++)sum+=a[i]**2;return Math.sqrt(sum/Math.floor((end-start)*rate));};
-  for(const channel of channels){
-   assert.equal(channel.length,Math.ceil(rate*.95));
-   assert.ok(channel.every(n=>Number.isFinite(n)&&Math.abs(n)<=.901));
-   assert.equal(Math.abs(channel[0]),0);assert.ok(Math.abs(channel.at(-1))<.00001);
-   assert.ok(rms(channel,0,.05)>.1,'audible initial crack and punch');
-   assert.ok(rms(channel,.4,.6)<rms(channel,0,.05)*.08,'tail fades well below the shot');
-  }
-  assert.notDeepEqual(channels[0].slice(rate*.2,rate*.3),channels[1].slice(rate*.2,rate*.3),'diffuse stereo tail');
+test('recorded gunshots have an immediate transient, clean decay and playable PCM headers',async()=>{
+ for(const file of SHOT_FILES){
+  const wav=await readFile(new URL('../'+file,import.meta.url));
+  assert.equal(wav.toString('ascii',0,4),'RIFF');assert.equal(wav.toString('ascii',8,12),'WAVE');
+  let fmt,data;
+  for(let offset=12;offset+8<=wav.length;){const size=wav.readUInt32LE(offset+4),id=wav.toString('ascii',offset,offset+4),chunk=wav.subarray(offset+8,offset+8+size);if(id==='fmt ')fmt=chunk;if(id==='data')data=chunk;offset+=8+size+(size%2);}
+  assert.ok(fmt&&data);assert.equal(fmt.readUInt16LE(0),1);assert.equal(fmt.readUInt16LE(2),2);assert.equal(fmt.readUInt32LE(4),48000);assert.equal(fmt.readUInt16LE(14),16);
+  const samples=Array.from({length:data.length/2},(_,i)=>data.readInt16LE(i*2)/32768);
+  const rms=(start,end)=>{const a=samples.slice(Math.floor(start*96000),Math.floor(end*96000));return Math.sqrt(a.reduce((sum,n)=>sum+n*n,0)/a.length);};
+  assert.ok(Math.abs(samples.length/96000-.56)<.002);
+  assert.ok(samples.every(n=>Math.abs(n)<.95),'no clipped PCM samples');
+  assert.ok(rms(0,.08)>.025,'shot attack is not buried behind silence');
+  assert.ok(rms(.35,.55)<rms(0,.08)*.3,'background and reflections decay');
+  assert.ok(Math.abs(samples.at(-1))<.001,'tail ends cleanly');
  }
 });

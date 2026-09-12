@@ -56,20 +56,21 @@ function revolver(parent){const g=new THREE.Group();parent.add(g);box(.12,.14,.3
  // Small SAA-style hammer: the pivot and lower shank sit inside the rear
  // frame, with only the narrow head and thumb spur protruding above it.
  const hammer=new THREE.Group();hammer.position.set(0,-.012,.087);g.add(hammer);
- box(.024,.1,.028,steel,hammer,0,.044,-.006);
- const spur=box(.04,.017,.046,steel,hammer,0,.097,.014);spur.rotation.x=-.25;
- box(.024,.025,.022,steel,hammer,0,.078,-.014);hammer.rotation.x=.62;
+ box(.024,.095,.03,steel,hammer,0,.043,.003);hammer.rotation.x=.62;
  const fanHand=new THREE.Group();g.add(fanHand);mesh(new THREE.SphereGeometry(.115,8,6),skin,fanHand);fanHand.visible=false;
- Object.assign(g.userData,{cylinderPivot,cylinderTarget:0,hammer,fanHand,firedAt:-1000,fanAt:-1000});return g;}
-function animateRevolver(g,now,dt){const data=g.userData;data.cylinderPivot.rotation.z+=(data.cylinderTarget-data.cylinderPivot.rotation.z)*(1-Math.exp(-32*dt));
+ Object.assign(g.userData,{cylinderPivot,cylinderFrom:0,cylinderTarget:0,hammer,fanHand,firedAt:-1000,fanAt:-1000});return g;}
+function animateRevolver(g,now,dt){const data=g.userData;
  const age=Math.max(0,(now-data.firedAt)/1000),recockStart=data.fanning?.035:.075,recockTime=data.fanning?.065:.13;
  const ease=x=>{const a=Math.max(0,Math.min(1,x));return a*a*(3-2*a);};
- // Release from cocked to striking position, then pull back for the next shot.
- data.hammer.rotation.x=age<.022?.62*(1-ease(age/.022)):.62*ease((age-recockStart)/recockTime);
+ // The hammer is down when the shot ignites. Cocking then pulls it back and
+ // indexes the next chamber together, finishing before another shot is ready.
+ const cock=ease((age-recockStart)/recockTime);
+ data.hammer.rotation.x=.62*cock;
+ data.cylinderPivot.rotation.z=data.cylinderFrom+(data.cylinderTarget-data.cylinderFrom)*cock;
  const fanAge=(now-data.fanAt)/1000;data.fanHand.visible=fanAge<.34;
  if(data.fanHand.visible){const stroke=Math.sin(Math.min(1,fanAge/.13)*Math.PI),exit=Math.max(0,(fanAge-.15)/.19);data.fanHand.position.set(-.33+stroke*.35-exit*.2,.1+stroke*.01-exit*.2,.15);}
 }
-function cockRevolver(g,now,fan){g.userData.cylinderTarget+=Math.PI/3;g.userData.firedAt=now;g.userData.fanning=fan;if(fan)g.userData.fanAt=now;}
+function cockRevolver(g,now,fan){const data=g.userData;data.hammer.rotation.x=0;data.cylinderFrom=data.cylinderTarget;data.cylinderTarget+=Math.PI/3;data.firedAt=now;data.fanning=fan;if(fan)data.fanAt=now;}
 function cowboy(color){const g=new THREE.Group();mesh(new THREE.CapsuleGeometry(.42,.96,4,8),mat(color),g,0,.9,0);mesh(new THREE.CylinderGeometry(.67,.67,.09,10),hat,g,0,1.79,0);mesh(new THREE.CylinderGeometry(.34,.38,.3,8),hat,g,0,1.95,0);box(.74,.1,.08,wood,g,0,.76,-.32);
  const right=new THREE.Group();right.position.set(.4,1.15,-.55);g.add(right);mesh(new THREE.SphereGeometry(.13,8,6),skin,right,0,-.13,.07);g.userData.revolver=revolver(right);
  g.userData.rightHand=right;scene.add(g);return g;}
@@ -163,7 +164,10 @@ function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt
 }
 $('play').onclick=async()=>{
  if(joining)return;
- try{audio??=createWeaponAudio();audio.resume().catch(()=>{});}catch{}
+ joining=true;$('play').disabled=true;
+ try{audio??=createWeaponAudio();await Promise.all([audio.resume(),audio.ready]);}
+ catch{$('error').textContent='Gunshot audio could not load. Refresh and try again.';audio=null;return;}
+ finally{joining=false;$('play').disabled=false;}
  if(!matchMedia('(pointer:fine)').matches){$('error').textContent='This prototype needs a keyboard and mouse.';return;}
  $('error').textContent='';
  if(!token){joining=true;$('play').disabled=true;try{
