@@ -45,3 +45,7 @@ Run `node --test tests/*.test.mjs`. Three.js 0.180.0 is vendored in `vendor/` un
 Team members can clone the repository, create a branch for their work, and open a pull request when ready.
 
 > Responsibilities are based on the initial discussion and can be updated as the project plan becomes clearer.
+
+## Vercel
+Import this repository into Vercel. The included vercel.json builds the browser game automatically with node build-static.mjs and serves dist/. This deployment supports local practice. Multiplayer still requires the persistent Node server (node server.mjs); its in-memory rooms and continuous simulation are not deployed as Vercel Functions.
+
