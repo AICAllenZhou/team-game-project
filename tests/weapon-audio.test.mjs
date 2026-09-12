@@ -14,10 +14,11 @@ test('recorded gunshots have an immediate transient, clean decay and playable PC
   const samples=Array.from({length:data.length/2},(_,i)=>data.readInt16LE(i*2)/32768);
   clips.push(samples);
   const rms=(start,end)=>{const a=samples.slice(Math.floor(start*96000),Math.floor(end*96000));return Math.sqrt(a.reduce((sum,n)=>sum+n*n,0)/a.length);};
-  assert.ok(Math.abs(samples.length/96000-.85)<.002);
+  assert.ok(Math.abs(samples.length/96000-1.2)<.002);
   assert.ok(samples.every(n=>Math.abs(n)<.95),'no clipped PCM samples');
   assert.ok(rms(0,.08)>.025,'shot attack is not buried behind silence');
-  assert.ok(rms(.35,.55)<rms(0,.08)*.3,'background and reflections decay');
+  assert.ok(rms(.9,1.1)<rms(0,.08)*.3,'long tail decays');
+  assert.ok(rms(.2,.45)>.003,'body lasts beyond the initial crack');
   assert.ok(Math.abs(samples.at(-1))<.001,'tail ends cleanly');
  }
  // Six rapid shots must fit in the mixer without a compressor crushing them.

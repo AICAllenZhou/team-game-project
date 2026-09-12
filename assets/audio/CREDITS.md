@@ -6,6 +6,12 @@ https://opengameart.org/content/the-free-firearm-sound-library
 Archive: https://opengameart.org/sites/default/files/Prepared%20SFX%20Library.7z
 License: CC0 1.0 — https://creativecommons.org/publicdomain/zero/1.0/
 
+Active sound (revolver-1.wav): Prepared SFX Library/Smith & Wesson 642/V_22P.wav
+Trimmed to 1.2 seconds from 0.670 seconds; right channel centered; 3.8 kHz
+low-pass to soften the top end; gain 0.65; 4 ms curved attack; 750 ms curved
+tail fade. Exported as 48 kHz 16-bit PCM WAV. This is the sole playback sound.
+
+Unused earlier variants (revolver-2.wav, revolver-3.wav):
 Original file: Prepared SFX Library/Smith & Wesson 642/V_27P.wav
 Source format: 96 kHz, 24-bit PCM stereo. Library metadata identifies a
 Smith & Wesson 642 .38 Special revolver, near distance, front of shooter.
