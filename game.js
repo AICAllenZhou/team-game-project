@@ -157,37 +157,37 @@ function emitParticles(origin,direction,color,count,smoke){
 function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt=performance.now();const mine=s.players.find(p=>p.id===id);if(!mine)return;
  if(!predictionReady||(!local.hp&&mine.hp>0)){Object.assign(predicted,{x:mine.x,y:mine.y,z:mine.z,vy:0,vx:0,vz:0,correctionVX:0,correctionVZ:0});correction={x:0,z:0};smoothPosition.set(mine.x,mine.y+1.5,mine.z);predictionReady=true;}
  else correction=predictionCorrection(predicted,mine);
- local=mine;$('health').textContent=mine.hp;$('ammo').textContent=mine.ammo;$('connection').textContent=`${s.players.length} / 12 • ${$('room').value.toUpperCase()}`;
+ local=mine;
  const ids=new Set();for(const p of s.players){if(p.id===id)continue;ids.add(p.id);if(!peers.has(p.id))peers.set(p.id,cowboy(p.color));const g=peers.get(p.id);g.userData.target=p;g.visible=p.hp>0;g.userData.rightHand.rotation.set(p.gunPitch??0,angleDelta(p.yaw,p.gunYaw??p.yaw),p.reloadUntil?-.4:0,'YXZ');}
  for(const [key,g] of peers)if(!ids.has(key)){scene.remove(g);peers.delete(key);}
- $('score').textContent='CALLSIGN          K / D\n'+s.players.sort((a,b)=>b.kills-a.kills).map(p=>`${p.name.padEnd(17)} ${p.kills} / ${p.deaths}`).join('\n');
 }
+function joinError(message){$('play').title=message;$('play').setAttribute('aria-label','Join. '+message);console.warn(message);}
 $('play').onclick=async()=>{
  if(joining)return;
  joining=true;$('play').disabled=true;
  try{audio??=createWeaponAudio();await Promise.all([audio.resume(),audio.ready]);}
- catch{$('error').textContent='Gunshot audio could not load. Refresh and try again.';audio=null;return;}
+ catch{joinError('Gunshot audio could not load. Refresh and try again.');audio=null;return;}
  finally{joining=false;$('play').disabled=false;}
- if(!matchMedia('(pointer:fine)').matches){$('error').textContent='This prototype needs a keyboard and mouse.';return;}
- $('error').textContent='';
+ if(!matchMedia('(pointer:fine)').matches){joinError('This prototype needs a keyboard and mouse.');return;}
+ $('play').title='';$('play').removeAttribute('aria-label');
  if(!token){joining=true;$('play').disabled=true;try{
- const r=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('name').value,room:$('room').value})});
- if(r.status===404||r.status===405){online=false;$('connection').textContent='LOCAL PRACTICE';}
- else {if(!r.ok)throw Error(await r.text());const data=await r.json();token=data.token;id=data.id;$('room').value=data.room;online=true;events=new EventSource('/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>applyState(JSON.parse(e.data)));events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));events.onerror=()=>{$('connection').textContent='RECONNECTING';};dummies.forEach(g=>g.visible=false);}
- }catch(e){$('error').textContent='Could not join: '+e.message;joining=false;$('play').disabled=false;return;}joining=false;$('play').disabled=false;}
- try{try{await $('game').requestPointerLock({unadjustedMovement:true});}catch(e){if(e.name!=='NotSupportedError')throw e;await $('game').requestPointerLock();}}catch{$('error').textContent='Click Enter again to capture the mouse.';}
+ const r=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Drifter',room:'frontier'})});
+ if(r.status===404||r.status===405){online=false;}
+ else {if(!r.ok)throw Error(await r.text());const data=await r.json();token=data.token;id=data.id;online=true;events=new EventSource('/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>applyState(JSON.parse(e.data)));events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));dummies.forEach(g=>g.visible=false);}
+ }catch(e){joinError('Could not join: '+e.message);joining=false;$('play').disabled=false;return;}joining=false;$('play').disabled=false;}
+ try{try{await $('game').requestPointerLock({unadjustedMovement:true});}catch(e){if(e.name!=='NotSupportedError')throw e;await $('game').requestPointerLock();}}catch{joinError('Click Join again to capture the mouse.');}
 };
-document.addEventListener('pointerlockchange',()=>{const locked=document.pointerLockElement===$('game');document.body.classList.toggle('playing',locked);keys.clear();focusHeld=false;queuedFanClick=false;if(locked)$('play').innerHTML='RESUME <span>↗</span>';});
+document.addEventListener('pointerlockchange',()=>{const locked=document.pointerLockElement===$('game');document.body.classList.toggle('playing',locked);keys.clear();focusHeld=false;queuedFanClick=false;});
 document.addEventListener('mousemove',e=>{if(document.pointerLockElement!==$('game'))return;
  const aim={freeX,freeY,lookYaw,lookPitch};freeAimInput(aim,e.movementX,e.movementY,Number(focusHeld));({freeX,freeY,lookYaw,lookPitch}=aim);
 });
 window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockElement===$('game')){e.preventDefault();focusHeld=true;}});
 window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;});
 $('game').addEventListener('contextmenu',e=>e.preventDefault());
-window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='Tab')$('score').style.display='block';if(e.code==='KeyR'&&document.pointerLockElement)reload();});
-window.addEventListener('keyup',e=>{keys.delete(e.code);if(e.code==='Tab')$('score').style.display='none';});window.addEventListener('blur',()=>{keys.clear();focusHeld=false;queuedFanClick=false;$('score').style.display='none';});
+window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='KeyR'&&document.pointerLockElement)reload();});
+window.addEventListener('keyup',e=>{keys.delete(e.code);});window.addEventListener('blur',()=>{keys.clear();focusHeld=false;queuedFanClick=false;});
 function reload(){queuedFanClick=false;if(online){post('reload').catch(networkError);}else if(!reloading&&local.ammo<6)reloading=performance.now()+1800;}
-function networkError(e){$('connection').textContent='DISCONNECTED';$('error').textContent=e.message+' — reload the page to rejoin.';document.exitPointerLock();online=false;token=null;events?.close();}
+function networkError(e){joinError(e.message+' — reload the page to rejoin.');document.exitPointerLock();online=false;token=null;events?.close();}
 function fire(requestFan,now=performance.now()){
  if(!document.pointerLockElement||local.hp<=0||local.reloadUntil||reloading)return;
  if(!local.ammo){reload();return;}
@@ -200,7 +200,7 @@ function fire(requestFan,now=performance.now()){
  shotExposure.energy=Math.min(1.2,shotExposure.energy+.38);
  emitParticles(origin,direction,0xffd684,4,false);emitParticles(origin,direction,0xaaa396,2,true);
  const shotId=String(++shotSequence);shotEffect({id:online?id:'local',shotId,origin,direction,...result,fan},online);
- local.ammo--;$('ammo').textContent=local.ammo;
+ local.ammo--;
  if(online)post('fire',{shotId,fan,muzzle:origin,direction,gunYaw:Math.atan2(-direction.x,-direction.z),gunPitch:Math.asin(clamp(direction.y,-1,1))}).catch(networkError);
 }
 window.addEventListener('mousedown',e=>{if(e.button!==0||document.pointerLockElement!==$('game')||local.hp<=0)return;
@@ -219,7 +219,7 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  freeY+=(clamp(freeY,-focusLimitY,focusLimitY)-freeY)*(1-Math.exp(-12*dt));
  if(online&&predictionReady){move(predicted,{x:locked&&local.hp>0?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:locked&&local.hp>0?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,jump:locked&&local.hp>0&&keys.has('Space')},dt);settlePrediction(predicted,correction,dt);}
  if(!online)move(local,{x:locked?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:locked?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,jump:locked&&keys.has('Space')},dt);
- if(reloading&&now>=reloading){reloading=0;local.ammo=6;$('ammo').textContent=6;}
+ if(reloading&&now>=reloading){reloading=0;local.ammo=6;}
  const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k)),lean=locked?(Number(keys.has('KeyE'))-Number(keys.has('KeyQ'))):0;
  walkBlend+=(Number(moving)-walkBlend)*(1-Math.exp(-10*dt));walkPhase+=dt*9*walkBlend;const bob=Math.sin(walkPhase)*.025*walkBlend;
  gunYaw=yaw+handYaw;gunPitch=pitch+handPitch;
@@ -236,8 +236,6 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  shotVignette.style.opacity=String(shotExposure.visible*.55);
  shotVignette.style.setProperty('--shot-clear',`${64-shotExposure.visible*24}%`);
  for(const target of targets.values()){const age=t-target.hitAt;target.group.rotation.x=age<.5?Math.sin(age*32)*.12*Math.exp(-age*8):0;target.face.material.emissive.setHex(age<.16?0x664018:0x000000);}
- $('reload').textContent=reloadEnd?'RELOADING':'R · RELOAD';
- $('notice').textContent=local.hp<=0?`BACK IN ${Math.max(1,Math.ceil((local.deadUntil-clock)/1000))}`:'';
  for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(new THREE.Vector3(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;animateRevolver(g.userData.revolver,now,dt);}}
  for(let i=projectiles.length-1;i>=0;i--){const p=projectiles[i],age=(now-p.born)/1000,progress=projectileProgress(p.distance,age);
   p.round.position.copy(p.origin).addScaledVector(p.direction,p.distance*progress);p.round.visible=progress<1;
@@ -257,7 +255,6 @@ function frame(now){requestAnimationFrame(frame);const dt=Math.min((now-last)/10
  colorShift.uniforms.aimStart.value.set(startUV.x*.5+.5,startUV.y*.5+.5);colorShift.uniforms.aimEnd.value.set(endUV.x*.5+.5,endUV.y*.5+.5);
  colorShift.uniforms.heat.value=aimOpacity*(.25+barrelHeat*.75)*clamp(beamDirection.dot(camera.getWorldDirection(new THREE.Vector3()))/.2,0,1);colorShift.uniforms.time.value=t;
  if(queuedFanClick&&now-lastShot>=FAN_INTERVAL+15){queuedFanClick=false;fire(true,now);}
- $('time').textContent=`${String(Math.floor(t/60)).padStart(2,'0')}:${String(Math.floor(t%60)).padStart(2,'0')}`;
  colorShift.uniforms.strength.value=shotExposure.visible*.5;
  renderer.setRenderTarget(shotBuffer);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.render(screenScene,screenCamera);
 }
