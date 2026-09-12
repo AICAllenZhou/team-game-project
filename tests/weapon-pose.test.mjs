@@ -73,10 +73,25 @@ test('same mouse travel gives identical camera rotation throughout the hand rang
 test('camera recoil starts with velocity, not an instantaneous angle jump',()=>{
  const head={angle:0,velocity:1.1};assert.equal(head.angle,0);stepRecoil(head,1/144);assert.ok(head.angle>0&&head.angle<.01);
 });
-test('delayed mouse input cannot cause an instantaneous camera velocity jump',()=>{
- for(const hz of [30,60,144]){const s={yaw:0,pitch:0,lookYaw:12,lookPitch:.7,freeX:0,freeY:0,handYaw:0,handPitch:0,yawVelocity:0,pitchVelocity:0};
- for(let i=0;i<hz*2;i++){const before=s.yaw,velocity=s.yawVelocity;followAim(s,1/hz);assert.ok(Math.abs(s.yaw-before)<=8/hz+1e-9);assert.ok(Math.abs(s.yawVelocity-velocity)<=80/hz+1e-9);}
+test('rendered camera has fixed gain without acceleration, speed caps or coast',()=>{
+ for(const dt of [1/30,1/60,1/144,.09])for(const focus of [0,1]){
+ const s={yaw:0,pitch:0,lookYaw:0,lookPitch:0,freeX:0,freeY:0,handYaw:0,handPitch:0};
+ for(const dx of [5,50,500,-500,-50,-5]){const before=s.yaw;freeAimInput(s,dx,0,focus);followAim(s,dt);
+ assert.ok(Math.abs(s.yaw-before+dx*.0018*.6*(1-.7*focus))<1e-10);}
+ const stopped=s.yaw;followAim(s,dt);assert.equal(s.yaw,stopped);
  }
+});
+test('hand sensitivity is constant across the usable aiming range and reverses off the stop',()=>{
+ for(const focus of [0,1]){const limit=.28+.28*focus,gain=.0018*(.82+.12*focus);
+ for(const start of [-limit*.9,0,limit*.9]){const s={freeX:start,freeY:0,lookYaw:0,lookPitch:0};freeAimInput(s,2,0,focus);assert.ok(Math.abs(s.freeX-start-2*gain)<1e-12);}
+ const s={freeX:limit,freeY:0,lookYaw:0,lookPitch:0};freeAimInput(s,10000,0,focus);freeAimInput(s,-2,0,focus);assert.ok(Math.abs(s.freeX-(limit-2*gain))<1e-12);
+ }
+});
+test('hand follow has identical delay at different frame rates for steady mouse travel',()=>{
+ const results=[];
+ for(const hz of [30,60,144]){const s={yaw:0,pitch:0,lookYaw:0,lookPitch:0,freeX:0,freeY:0,handYaw:0,handPitch:0,previousFreeX:0,previousFreeY:0};
+ for(let i=0;i<hz;i++){freeAimInput(s,100/hz,0,1);followAim(s,1/hz);}results.push(s.handYaw);}
+ assert.ok(Math.max(...results)-Math.min(...results)<1e-10);
 });
 
 test('beam and bullet share an immutable muzzle ray through aim and recoil',()=>{

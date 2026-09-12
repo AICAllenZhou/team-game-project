@@ -15,33 +15,29 @@ export function placeWeapon(rig, {yaw = 0, pitch = 0, bob = 0, lean = 0, recoil 
 export function freeAimInput(state, dx, dy, focus) {
   const limits=[.28+.28*focus,.2+.18*focus],speed=.6*(1-.7*focus),headShare=.18-.12*focus;
   for(const [key,look,delta,limit] of [['freeX','lookYaw',dx*.0018,limits[0]],['freeY','lookPitch',dy*.0018,limits[1]]]){
-    const previous=Math.max(-limit*.999,Math.min(limit*.999,state[key]));
-    // Soft saturation gradually transfers mouse travel to the camera, avoiding
-    // the abrupt sensitivity step when the hand reaches a hard edge.
-    const next=limit*Math.tanh(Math.atanh(previous/limit)+delta*(1-headShare)/limit);
-    const bounded=Math.max(-limit*.999,Math.min(limit*.999,next));
-    state[key]=bounded;state[look]-=delta*speed;
+    // Constant gain throughout the usable range; only the physical stop clamps.
+    // No hidden atanh accumulation to make reversal sticky near an edge.
+    state[key]=Math.max(-limit,Math.min(limit,state[key]+delta*(1-headShare)));
+    state[look]-=delta*speed;
   }
   state.lookPitch=Math.max(-1.35,Math.min(1.35,state.lookPitch));
 }
 
 export function followAim(state,dt){
-  // Preserve angular velocity across frames instead of instantly changing it
-  // with every mouse batch. Bound acceleration and speed for delayed events.
-  const steps=Math.max(1,Math.ceil(dt*120)),h=dt/steps;
-  for(const [key,target,velocity] of [['yaw','lookYaw','yawVelocity'],['pitch','lookPitch','pitchVelocity']]){
-    state[velocity]??=0;
-    for(let i=0;i<steps;i++){
-      const error=state[target]-state[key],acceleration=Math.max(-80,Math.min(80,900*error-60*state[velocity]));
-      state[velocity]=Math.max(-8,Math.min(8,state[velocity]+acceleration*h));
-      state[key]+=state[velocity]*h;
-    }
-  }
+  // Mouse distance directly determines head rotation, without acceleration,
+  // a speed cap or a spring continuing to turn after the mouse stops.
+  state.yaw=state.lookYaw;state.pitch=state.lookPitch;
   // Follow LOCAL offsets, not a wrapped world angle. Even repeated full turns
   // cannot strand the barrel facing backwards or swap the side it lags toward.
-  const gunBlend=1-Math.exp(-16*dt);
-  state.handYaw+=(-state.freeX-state.handYaw)*gunBlend;
-  state.handPitch+=(-state.freeY-state.handPitch)*gunBlend;
+  // Exact exponential response to a linearly moving target. A fixed 35 ms
+  // time constant gives the same follow at 30, 60 and 144 Hz.
+  const tau=.035,decay=Math.exp(-dt/tau);
+  for(const [key,free,previous] of [['handYaw','freeX','previousFreeX'],['handPitch','freeY','previousFreeY']]){
+    const target=-state[free],start=-(state[previous]??state[free]);
+    const speed=dt>0?(target-start)/dt:0;
+    state[key]=target-speed*tau+(state[key]-start+speed*tau)*decay;
+    state[previous]=state[free];
+  }
 }
 
 export function stepRecoil(s,dt){
