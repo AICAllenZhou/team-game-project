@@ -1,6 +1,7 @@
 import * as THREE from './vendor/three.module.js';
 import {createWeaponAudio} from './weapon-audio.js';
 import {createGameLoop} from './game-loop.js';
+import {batchMeshes,createParticles} from './render-batches.js';
 import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil,captureBarrelRay} from './weapon-pose.js';
 import {move,TRAINING_TARGETS,traceShot,PROJECTILE_SPEED,projectileProgress,predictionCorrection,settlePrediction,FAN_INTERVAL,FAN_CLICK_WINDOW} from './simulation.mjs';
 const $=id=>document.getElementById(id);
@@ -8,13 +9,15 @@ const gameLoop=createGameLoop({onFrame:now=>frame(now)});
 let renderReady=false,inputTimer=null,idleTimer=null,pendingState=null,stopInputPending=false;
 const renderer=new THREE.WebGLRenderer({canvas:$('game'),antialias:false});renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.setClearColor(0x9b9387);
 const scene=new THREE.Scene();scene.fog=new THREE.Fog(0x9b9387,38,100);
+const scenery=new THREE.Group();scene.add(scenery);
+renderer.shadowMap.autoUpdate=false;renderer.shadowMap.needsUpdate=true;
 // Keep one rendering path active so firing/aiming cannot switch render targets
 // and shader variants midway through mouse movement.
 const shotBuffer=new THREE.WebGLRenderTarget(1,1,{depthBuffer:true,samples:2});
 const colorShift=new THREE.ShaderMaterial({
- uniforms:{frame:{value:shotBuffer.texture},strength:{value:0},blast:{value:0},muzzleUV:{value:new THREE.Vector2(.5,.3)},heat:{value:0},time:{value:0},aspect:{value:1},aimStart:{value:new THREE.Vector2(.5,.3)},aimEnd:{value:new THREE.Vector2(.5,.6)}},depthTest:false,depthWrite:false,
+ uniforms:{frame:{value:shotBuffer.texture},exposure:{value:0},strength:{value:0},blast:{value:0},muzzleUV:{value:new THREE.Vector2(.5,.3)},heat:{value:0},time:{value:0},aspect:{value:1},aimStart:{value:new THREE.Vector2(.5,.3)},aimEnd:{value:new THREE.Vector2(.5,.6)}},depthTest:false,depthWrite:false,
  vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.0,1.0);}',
- fragmentShader:`uniform sampler2D frame; uniform float strength,blast,heat,time,aspect; uniform vec2 aimStart,aimEnd,muzzleUV; varying vec2 vUv;
+ fragmentShader:`uniform sampler2D frame; uniform float strength,blast,heat,time,aspect,exposure; uniform vec2 aimStart,aimEnd,muzzleUV; varying vec2 vUv;
  vec3 bright(vec2 uv){vec3 c=texture2D(frame,clamp(uv,vec2(0.001),vec2(0.999))).rgb;return c*smoothstep(0.65,1.0,max(c.r,max(c.g,c.b)));}
  void main(){vec2 radial=vUv-0.5;float edge=smoothstep(0.2,0.65,length(radial));
  vec2 ratio=vec2(aspect,1.0),wave=vec2(0.0);
@@ -29,16 +32,24 @@ const colorShift=new THREE.ShaderMaterial({
  if(strength>0.001){color.r=texture2D(frame,clamp(uv+shift,vec2(0.001),vec2(0.999))).r;
  color.b=texture2D(frame,clamp(uv-shift,vec2(0.001),vec2(0.999))).b;}
  // Skip the bright-pass texture fetches between shots, keeping one shader.
- if(blast>0.001){vec2 texel=vec2(0.008/aspect,0.008);
+ if(blast>0.001){vec2 muzzleDelta=(vUv-muzzleUV)*ratio;float radius2=dot(muzzleDelta,muzzleDelta);
+ // Only pixels near the muzzle need the eight bloom texture samples.
+ if(radius2<0.20){vec2 texel=vec2(0.008/aspect,0.008);
  vec3 bloom=bright(uv+texel*vec2(1.,0.))+bright(uv+texel*vec2(-1.,0.))
  +bright(uv+texel*vec2(0.,1.))+bright(uv+texel*vec2(0.,-1.))
  +bright(uv+texel*vec2(1.,1.))+bright(uv+texel*vec2(-1.,1.))
  +bright(uv+texel*vec2(1.,-1.))+bright(uv+texel*vec2(-1.,-1.));
- vec2 muzzleDelta=(vUv-muzzleUV)*ratio;float radius2=dot(muzzleDelta,muzzleDelta);
  float halo=exp(-radius2/0.003)*0.9+exp(-radius2/0.024)*0.18;
- color+=blast*(bloom*0.16*exp(-radius2/0.05)+vec3(1.0,0.64,0.29)*halo);}
+ color+=blast*(bloom*0.16*exp(-radius2/0.05)+vec3(1.0,0.64,0.29)*halo);}}
  gl_FragColor=vec4(color,1.0);
  #include <colorspace_fragment>
+ // Smooth screen glow shares the existing GPU pass. No animated DOM blur,
+ // gradient repaint or extra screen-blend compositor layers while firing.
+ if(exposure>0.0001){float radius=length(radial*2.0);
+ float glow=smoothstep(0.64-exposure*0.24,1.18,radius)*exposure*0.22;
+ vec3 tint=vec3(1.0,0.76,0.48);
+ tint+=vec3(0.16,-0.02,0.16)*radial.x;
+ gl_FragColor.rgb=mix(gl_FragColor.rgb,tint,glow);}
  }`
 });
 const screenScene=new THREE.Scene(),screenCamera=new THREE.Camera();screenScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),colorShift));
@@ -48,10 +59,11 @@ const mat=(color)=>new THREE.MeshStandardMaterial({color,roughness:.85,flatShadi
 const sand=mat(0xa8895c),edge=mat(0x796345),skin=mat(0xd7b18a),steel=mat(0x484b4a),wood=mat(0x633f2a),hat=mat(0x493d2b);
 function mesh(geometry,material,parent,x=0,y=0,z=0){const m=new THREE.Mesh(geometry,material);m.position.set(x,y,z);m.castShadow=true;m.receiveShadow=true;parent.add(m);return m;}
 function box(w,h,d,m,p,x,y,z){return mesh(new THREE.BoxGeometry(w,h,d),m,p,x,y,z);}
-box(56,.5,56,sand,scene,0,-.26,0);const grid=new THREE.GridHelper(56,28,0x8f784f,0xad915f);grid.position.y=.002;grid.material.transparent=true;grid.material.opacity=.24;scene.add(grid);
-for(const side of [-1,1]){box(56,.16,.18,edge,scene,0,.08,side*27.8);box(.18,.16,56,edge,scene,side*27.8,.08,0);for(let i=-24;i<=24;i+=8){box(.22,1.2,.22,wood,scene,i,.6,side*28);box(.22,1.2,.22,wood,scene,side*28,.6,i);}}
+box(56,.5,56,sand,scenery,0,-.26,0);const grid=new THREE.GridHelper(56,28,0x8f784f,0xad915f);grid.position.y=.002;grid.material.transparent=true;grid.material.opacity=.24;scene.add(grid);
+for(const side of [-1,1]){box(56,.16,.18,edge,scenery,0,.08,side*27.8);box(.18,.16,56,edge,scenery,side*27.8,.08,0);for(let i=-24;i<=24;i+=8){box(.22,1.2,.22,wood,scenery,i,.6,side*28);box(.22,1.2,.22,wood,scenery,side*28,.6,i);}}
 // Distant scenery stays outside the playable base plate.
-for(let i=0;i<20;i++){const a=i*2.399,r=65+(i%3)*12;const rock=mesh(new THREE.ConeGeometry(10+i%7,7+i%5,4),mat(i%2?0x9a8a73:0xa69379),scene,Math.sin(a)*r,1,Math.cos(a)*r);rock.rotation.y=a;}
+const rockMaterials=[mat(0xa69379),mat(0x9a8a73)];
+for(let i=0;i<20;i++){const a=i*2.399,r=65+(i%3)*12;const rock=mesh(new THREE.ConeGeometry(10+i%7,7+i%5,4),rockMaterials[i%2],scenery,Math.sin(a)*r,1,Math.cos(a)*r);rock.rotation.y=a;}
 function revolver(parent){const g=new THREE.Group();parent.add(g);box(.12,.14,.32,steel,g,0,0,-.05);box(.085,.09,.34,steel,g,0,.025,-.35);
  const cylinderPivot=new THREE.Group();cylinderPivot.position.set(0,.005,-.04);g.add(cylinderPivot);
  const cylinder=mesh(new THREE.CylinderGeometry(.095,.095,.17,12),steel,cylinderPivot);cylinder.rotation.x=Math.PI/2;
@@ -62,6 +74,7 @@ function revolver(parent){const g=new THREE.Group();parent.add(g);box(.12,.14,.3
  const hammer=new THREE.Group();hammer.position.set(0,-.012,.087);g.add(hammer);
  box(.024,.095,.03,steel,hammer,0,.043,.003);hammer.rotation.x=.62;
  const fanHand=new THREE.Group();g.add(fanHand);mesh(new THREE.SphereGeometry(.115,8,6),skin,fanHand);fanHand.visible=false;
+ batchMeshes(g);batchMeshes(cylinderPivot);
  Object.assign(g.userData,{cylinderPivot,cylinderFrom:0,cylinderTarget:0,hammer,fanHand,firedAt:-1000,fanAt:-1000});return g;}
 function animateRevolver(g,now,dt){const data=g.userData;
  const age=Math.max(0,(now-data.firedAt)/1000),recockStart=data.fanning?.035:.075,recockTime=data.fanning?.065:.13;
@@ -77,7 +90,7 @@ function animateRevolver(g,now,dt){const data=g.userData;
 function cockRevolver(g,now,fan){const data=g.userData;data.hammer.rotation.x=0;data.cylinderFrom=data.cylinderTarget;data.cylinderTarget+=Math.PI/3;data.firedAt=now;data.fanning=fan;if(fan)data.fanAt=now;}
 function cowboy(color){const g=new THREE.Group();mesh(new THREE.CapsuleGeometry(.42,.96,4,8),mat(color),g,0,.9,0);mesh(new THREE.CylinderGeometry(.67,.67,.09,10),hat,g,0,1.79,0);mesh(new THREE.CylinderGeometry(.34,.38,.3,8),hat,g,0,1.95,0);box(.74,.1,.08,wood,g,0,.76,-.32);
  const right=new THREE.Group();right.position.set(.4,1.15,-.55);g.add(right);mesh(new THREE.SphereGeometry(.13,8,6),skin,right,0,-.13,.07);g.userData.revolver=revolver(right);
- g.userData.rightHand=right;scene.add(g);return g;}
+ batchMeshes(g);g.userData.rightHand=right;scene.add(g);return g;}
 const rig=new THREE.Group();camera.add(rig);
 // The revolver is held with one visible hand.
 const wrist=new THREE.Group();wrist.position.set(0,-.13,.07);rig.add(wrist);
@@ -98,7 +111,6 @@ rig.traverse(object=>{if(object.isMesh)object.castShadow=false;});
 const aimGeometry=new THREE.BufferGeometry();aimGeometry.setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(6),3));
 const aimMaterial=new THREE.LineBasicMaterial({color:0xffdf9b,transparent:true,opacity:0,depthWrite:false});
 const aimBeam=new THREE.Line(aimGeometry,aimMaterial);aimBeam.frustumCulled=false;scene.add(aimBeam);
-const shotVignette=document.createElement('div');shotVignette.className='shot-vignette';document.body.append(shotVignette);
 const shotExposure={energy:0,visible:0};
 const targets=new Map();
 for(const target of TRAINING_TARGETS){
@@ -108,17 +120,18 @@ for(const target of TRAINING_TARGETS){
   const ring=mesh(new THREE.TorusGeometry(.29,.05,6,24),mat(0xb43b28),g,0,0,side*.465);
   mesh(new THREE.SphereGeometry(.12,12,8),mat(0xb43b28),g,0,0,side*.54);
  }
- box(.1,1.05,.1,steel,scene,target.x,.525,target.z);box(.8,.08,.6,wood,scene,target.x,.04,target.z);
+ box(.1,1.05,.1,steel,scenery,target.x,.525,target.z);box(.8,.08,.6,wood,scenery,target.x,.04,target.z);
  targets.set(target.id,{group:g,face,hitAt:-100});
 }
+batchMeshes(scenery);
+scenery.updateWorldMatrix(true,true);
+scenery.traverse(object=>{object.matrixAutoUpdate=false;object.matrixWorldAutoUpdate=false;});
 const dummies=[cowboy(0xa57450),cowboy(0x6b9290),cowboy(0x9d7b8f)];dummies.forEach((g,i)=>g.position.set((i-1)*5,0,-9-Math.abs(i-1)*3));
 let token=null,id=null,events=null,online=false,joining=false,local={x:0,y:0,z:8,vy:0,hp:100,ammo:6},yaw=0,pitch=0,freeX=0,freeY=0,gunYaw=0,gunPitch=0,lastShot=-Infinity,reloading=0,last=0,lastAimFrame=0,started=0,serverTime=0,receivedAt=0;
 const keys=new Set(),peers=new Map(),projectiles=[];let audio;
 const pendingShots=new Map();let shotSequence=0,barrelHeat=0;
 let displayedAim=null,frozenAim=null,lastClick=-Infinity,queuedFanClick=false;
-const particlePool=[];
-const sparkGeometry=new THREE.IcosahedronGeometry(.024,0),smokeGeometry=new THREE.SphereGeometry(.1,6,4);
-for(let i=0;i<80;i++){const smoke=i<32,material=new THREE.MeshBasicMaterial({color:smoke?0xb7ae9e:0xffc267,transparent:true,opacity:0,depthWrite:false});const mesh=new THREE.Mesh(smoke?smokeGeometry:sparkGeometry,material);mesh.visible=false;scene.add(mesh);particlePool.push({mesh,smoke,life:0,total:1,velocity:new THREE.Vector3()});}
+const particles=createParticles(scene),emitParticles=particles.emit;
 const roundGeometry=new THREE.CapsuleGeometry(.045,.4,3,8),roundMaterial=new THREE.MeshBasicMaterial({color:0xffedb0});
 const glowMaterial=new THREE.MeshBasicMaterial({color:0xffb744,transparent:true,opacity:.22,depthWrite:false});
 let focusHeld=false,focusBlend=0;
@@ -156,14 +169,8 @@ function impactEffect(result,now){
  emitParticles(point,normal,result.surface==='world'?0xc5b28b:0xffd16b,9,false);
  emitParticles(point,normal,0xa99e87,2,true);
 }
-function emitParticles(origin,direction,color,count,smoke){
- for(const p of particlePool){if(count<=0)break;if(p.life>0||p.smoke!==smoke)continue;count--;
- p.life=p.total=smoke?.32+Math.random()*.2:.18+Math.random()*.2;p.mesh.visible=true;p.mesh.position.copy(origin);p.mesh.material.color.setHex(color);
- p.velocity.copy(direction).multiplyScalar(smoke?.4:2+Math.random()*3).add(new THREE.Vector3((Math.random()-.5)*1.5,Math.random()*.8,(Math.random()-.5)*1.5));
- p.mesh.scale.setScalar(smoke?.6:1);
- }
-}
 function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt=gameLoop.now();const mine=s.players.find(p=>p.id===id);if(!mine)return;
+ renderer.shadowMap.needsUpdate=true;
  if(!predictionReady||(!local.hp&&mine.hp>0)){Object.assign(predicted,{x:mine.x,y:mine.y,z:mine.z,vy:0,vx:0,vz:0,correctionVX:0,correctionVZ:0});correction={x:0,z:0};smoothPosition.set(mine.x,mine.y+1.5,mine.z);predictionReady=true;}
  else correction=predictionCorrection(predicted,mine);
  local=mine;
@@ -269,18 +276,16 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  shotExposure.energy*=Math.exp(-1.5*dt);
  shotExposure.visible+=(shotExposure.energy-shotExposure.visible)*(1-Math.exp(-(shotExposure.energy>shotExposure.visible?12:4.5)*dt));
  if(shotExposure.energy<.0001&&shotExposure.visible<.0001)shotExposure.energy=shotExposure.visible=0;
- shotVignette.style.opacity=String(shotExposure.visible*.55);
- shotVignette.style.setProperty('--shot-clear',`${64-shotExposure.visible*24}%`);
  }
- for(const target of targets.values()){const age=t-target.hitAt;target.group.rotation.x=age<.5?Math.sin(age*32)*.12*Math.exp(-age*8):0;target.face.material.emissive.setHex(age<.16?0x664018:0x000000);}
+ colorShift.uniforms.exposure.value=shotExposure.visible;
+ for(const target of targets.values()){const age=t-target.hitAt,tilt=age<.5?Math.sin(age*32)*.12*Math.exp(-age*8):0;if(target.group.rotation.x!==tilt){target.group.rotation.x=tilt;renderer.shadowMap.needsUpdate=true;}target.face.material.emissive.setHex(age<.16?0x664018:0x000000);}
+ if(peers.size)renderer.shadowMap.needsUpdate=true;
  for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(positionScratch.set(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;animateRevolver(g.userData.revolver,now,dt);}}
  for(let i=projectiles.length-1;i>=0;i--){const p=projectiles[i],age=(now-p.born)/1000,progress=projectileProgress(p.distance,age);
   p.round.position.copy(p.origin).addScaledVector(p.direction,p.distance*progress);p.round.visible=progress<1;
   if(progress===1&&(p.confirmed||age>2)){if(p.confirmed)impactEffect(p.result,now);scene.remove(p.round);if(pendingShots.get(p.result.shotId)===p)pendingShots.delete(p.result.shotId);projectiles.splice(i,1);}
  }
- for(const p of particlePool){if(p.life<=0)continue;p.life=Math.max(0,p.life-dt);p.mesh.visible=p.life>0;p.velocity.y+=(p.smoke?.4:-8)*dt;p.mesh.position.addScaledVector(p.velocity,dt);
- const progress=1-p.life/p.total;p.mesh.material.opacity=(1-progress)*(p.smoke?.045:1);p.mesh.scale.setScalar(p.smoke?.35+progress*1.3:1-progress*.6);
- }
+ particles.update(dt);
  const aimOpacity=locked&&local.hp>0&&!reloadEnd?focusBlend:0;
  aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;
  const liveAim=aimBeam.visible?captureAim():null;
@@ -302,7 +307,9 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  renderScene();
 }
 function renderScene(){renderer.setRenderTarget(shotBuffer);renderer.render(scene,camera);renderer.setRenderTarget(null);renderer.render(screenScene,screenCamera);}
-function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setPixelRatio(Math.min(devicePixelRatio,1.5,Math.sqrt(2560*1440/(innerWidth*innerHeight))));renderer.setSize(innerWidth,innerHeight);const size=renderer.getDrawingBufferSize(new THREE.Vector2());shotBuffer.setSize(size.x,size.y);colorShift.uniforms.aspect.value=camera.aspect;if(renderReady&&!gameLoop.running)renderScene();}
+// Avoid supersampling the entire arena and every effect on high-DPI displays.
+// Retain 2x MSAA at up to a 1080p pixel budget; input uses CSS pixels as before.
+function resize(){camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setPixelRatio(Math.min(devicePixelRatio,1,Math.sqrt(1920*1080/(innerWidth*innerHeight))));renderer.setSize(innerWidth,innerHeight);const size=renderer.getDrawingBufferSize(new THREE.Vector2());shotBuffer.setSize(size.x,size.y);colorShift.uniforms.aspect.value=camera.aspect;if(renderReady&&!gameLoop.running)renderScene();}
 window.addEventListener('resize',resize);resize();camera.position.set(0,1.5,8);
 // Compile both passes and the pooled particle materials before play so the
 // first shot/aim does not pause movement to compile new effects.

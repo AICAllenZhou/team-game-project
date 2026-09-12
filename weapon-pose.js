@@ -13,13 +13,11 @@ export function placeWeapon(rig, {yaw = 0, pitch = 0, bob = 0, lean = 0, recoil 
 // Transferring overflow to the camera made identical mouse motion accelerate
 // as the hand reached its limit, which felt like a jolt.
 export function freeAimInput(state, dx, dy, focus) {
-  const limits=[.28+.28*focus,.2+.18*focus],speed=.6*(1-.7*focus),headShare=.18-.12*focus;
-  for(const [key,look,delta,limit] of [['freeX','lookYaw',dx*.0018,limits[0]],['freeY','lookPitch',dy*.0018,limits[1]]]){
-    // Constant gain throughout the usable range; only the physical stop clamps.
-    // No hidden atanh accumulation to make reversal sticky near an edge.
-    state[key]=Math.max(-limit,Math.min(limit,state[key]+delta*(1-headShare)));
-    state[look]-=delta*speed;
-  }
+  const limitX=.28+.28*focus,limitY=.2+.18*focus,speed=.6*(1-.7*focus),handShare=1-(.18-.12*focus),x=dx*.0018,y=dy*.0018;
+  // This runs at mouse polling frequency; avoid temporary arrays per event.
+  state.freeX=Math.max(-limitX,Math.min(limitX,state.freeX+x*handShare));
+  state.freeY=Math.max(-limitY,Math.min(limitY,state.freeY+y*handShare));
+  state.lookYaw-=x*speed;state.lookPitch-=y*speed;
   state.lookPitch=Math.max(-1.35,Math.min(1.35,state.lookPitch));
 }
 
@@ -32,12 +30,11 @@ export function followAim(state,dt){
   // Exact exponential response to a linearly moving target. A fixed 35 ms
   // time constant gives the same follow at 30, 60 and 144 Hz.
   const tau=.035,decay=Math.exp(-dt/tau);
-  for(const [key,free,previous] of [['handYaw','freeX','previousFreeX'],['handPitch','freeY','previousFreeY']]){
-    const target=-state[free],start=-(state[previous]??state[free]);
-    const speed=dt>0?(target-start)/dt:0;
-    state[key]=target-speed*tau+(state[key]-start+speed*tau)*decay;
-    state[previous]=state[free];
-  }
+  const targetX=-state.freeX,targetY=-state.freeY,startX=-(state.previousFreeX??state.freeX),startY=-(state.previousFreeY??state.freeY);
+  const speedX=dt>0?(targetX-startX)/dt:0,speedY=dt>0?(targetY-startY)/dt:0;
+  state.handYaw=targetX-speedX*tau+(state.handYaw-startX+speedX*tau)*decay;
+  state.handPitch=targetY-speedY*tau+(state.handPitch-startY+speedY*tau)*decay;
+  state.previousFreeX=state.freeX;state.previousFreeY=state.freeY;
 }
 
 export function stepRecoil(s,dt){
