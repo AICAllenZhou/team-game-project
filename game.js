@@ -53,10 +53,12 @@ function revolver(parent){const g=new THREE.Group();parent.add(g);box(.12,.14,.3
  const cylinder=mesh(new THREE.CylinderGeometry(.095,.095,.17,12),steel,cylinderPivot);cylinder.rotation.x=Math.PI/2;
  const dark=mat(0x242725);for(let i=0;i<6;i++){const a=i*Math.PI/3;const chamber=mesh(new THREE.CylinderGeometry(.018,.018,.012,8),dark,cylinderPivot,Math.cos(a)*.064,Math.sin(a)*.064,-.09);chamber.rotation.x=Math.PI/2;}
  const grip=box(.1,.23,.12,wood,g,0,-.16,.08);grip.rotation.x=-.25;box(.025,.04,.025,steel,g,0,.09,-.49);
- const hammer=new THREE.Group();hammer.position.set(0,.07,.12);g.add(hammer);
- box(.045,.08,.035,steel,hammer,0,.03,0);
- const spur=box(.075,.027,.08,steel,hammer,0,.075,.026);spur.rotation.x=-.25;
- box(.045,.035,.03,steel,hammer,0,.065,-.023);hammer.rotation.x=.62;
+ // Small SAA-style hammer: the pivot and lower shank sit inside the rear
+ // frame, with only the narrow head and thumb spur protruding above it.
+ const hammer=new THREE.Group();hammer.position.set(0,-.012,.087);g.add(hammer);
+ box(.024,.1,.028,steel,hammer,0,.044,-.006);
+ const spur=box(.04,.017,.046,steel,hammer,0,.097,.014);spur.rotation.x=-.25;
+ box(.024,.025,.022,steel,hammer,0,.078,-.014);hammer.rotation.x=.62;
  const fanHand=new THREE.Group();g.add(fanHand);mesh(new THREE.SphereGeometry(.115,8,6),skin,fanHand);fanHand.visible=false;
  Object.assign(g.userData,{cylinderPivot,cylinderTarget:0,hammer,fanHand,firedAt:-1000,fanAt:-1000});return g;}
 function animateRevolver(g,now,dt){const data=g.userData;data.cylinderPivot.rotation.z+=(data.cylinderTarget-data.cylinderPivot.rotation.z)*(1-Math.exp(-32*dt));
@@ -65,7 +67,7 @@ function animateRevolver(g,now,dt){const data=g.userData;data.cylinderPivot.rota
  // Release from cocked to striking position, then pull back for the next shot.
  data.hammer.rotation.x=age<.022?.62*(1-ease(age/.022)):.62*ease((age-recockStart)/recockTime);
  const fanAge=(now-data.fanAt)/1000;data.fanHand.visible=fanAge<.34;
- if(data.fanHand.visible){const stroke=Math.sin(Math.min(1,fanAge/.13)*Math.PI),exit=Math.max(0,(fanAge-.15)/.19);data.fanHand.position.set(-.33+stroke*.35-exit*.2,.12+stroke*.04-exit*.2,.15);}
+ if(data.fanHand.visible){const stroke=Math.sin(Math.min(1,fanAge/.13)*Math.PI),exit=Math.max(0,(fanAge-.15)/.19);data.fanHand.position.set(-.33+stroke*.35-exit*.2,.1+stroke*.01-exit*.2,.15);}
 }
 function cockRevolver(g,now,fan){g.userData.cylinderTarget+=Math.PI/3;g.userData.firedAt=now;g.userData.fanning=fan;if(fan)g.userData.fanAt=now;}
 function cowboy(color){const g=new THREE.Group();mesh(new THREE.CapsuleGeometry(.42,.96,4,8),mat(color),g,0,.9,0);mesh(new THREE.CylinderGeometry(.67,.67,.09,10),hat,g,0,1.79,0);mesh(new THREE.CylinderGeometry(.34,.38,.3,8),hat,g,0,1.95,0);box(.74,.1,.08,wood,g,0,.76,-.32);
