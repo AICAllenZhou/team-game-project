@@ -1,5 +1,5 @@
-// Recorded black-powder shots, trimmed and cleaned offline. No synthesized
-// noise, oscillator sweeps, pitch shifting or repeated delay/echo effects.
+// Heavy handgun sound, equalized and mastered offline. Playback adds no
+// oscillator sweeps, pitch shifting or repeated delay/echo effects.
 export const SHOT_FILES=[1,2,3].map(i=>`assets/audio/revolver-${i}.wav`);
 export function createWeaponAudio(){
  const context=new AudioContext(),compressor=context.createDynamicsCompressor(),master=context.createGain();
