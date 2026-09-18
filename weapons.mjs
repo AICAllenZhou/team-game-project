@@ -1,5 +1,5 @@
 export const WEAPONS={revolver:{capacity:6,cost:1,reload:1800,damage:34},shotgun:{capacity:2,cost:1,reload:2400,damage:9}};
-export const SHOTGUN_SPREAD=2.8*Math.PI/180,SHOTGUN_MODEL_SCALE=1.25,SHOTGUN_SEPARATION=.058*SHOTGUN_MODEL_SCALE,SHOTGUN_INTERVAL=180;
+export const SHOTGUN_SPREAD=2.8*Math.PI/180,SHOTGUN_MODEL_SCALE=1.25,SHOTGUN_SEPARATION=.044*SHOTGUN_MODEL_SCALE,SHOTGUN_INTERVAL=180;
 
 // The seed keeps prediction and server traces identical. Each barrel emits
 // twelve pellets over an evenly covered cone, not a screen-centered ray.

@@ -144,7 +144,7 @@ function skeetTime(){return online?serverTime+gameLoop.now()-receivedAt:gameLoop
 function launchClay(){if(!gameLoop.running||local.hp<=0)return;if(online)post('launch').catch(networkError);else skeetRange.launch(gameLoop.now());}
 const roundGeometry=new THREE.CapsuleGeometry(.045,.4,3,8),roundMaterial=new THREE.MeshBasicMaterial({color:0xffedb0});
 const glowMaterial=new THREE.MeshBasicMaterial({color:0xffb744,transparent:true,opacity:.22,depthWrite:false});
-const pelletMesh=new THREE.InstancedMesh(new THREE.CapsuleGeometry(.009,.13,2,5),new THREE.MeshBasicMaterial({color:0xffd79a}),384),pelletMatrix=new THREE.Matrix4(),pelletRotation=new THREE.Quaternion(),pelletUp=new THREE.Vector3(0,1,0),pelletScale=new THREE.Vector3(1,1,1);pelletMesh.count=0;pelletMesh.frustumCulled=false;pelletMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(pelletMesh);
+const pelletMesh=new THREE.InstancedMesh(new THREE.CapsuleGeometry(.017,.28,2,5),new THREE.MeshBasicMaterial({color:0xffffdf}),384),pelletMatrix=new THREE.Matrix4(),pelletRotation=new THREE.Quaternion(),pelletUp=new THREE.Vector3(0,1,0),pelletScale=new THREE.Vector3(1,1,1);pelletMesh.count=0;pelletMesh.frustumCulled=false;pelletMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(pelletMesh);
 const ammoByWeapon={revolver:6,shotgun:2};let lastShotWeapon='revolver';
 function showWeapon(next){if(next===weapon)return;weapon=next;focusHeld=false;gun=weapon==='shotgun'?shotgunGun:revolverGun;revolverGun.visible=weapon==='revolver';shotgunGun.visible=weapon==='shotgun';displayedAim=frozenAim=null;queuedFanClick=false;shotExposure.energy=shotExposure.visible=barrelHeat=0;wristSpring.angle=wristSpring.velocity=0;}
 function equip(next){if(!gameLoop.running||local.reloadUntil||reloading||next===weapon)return;if(online)post('equip',{weapon:next}).catch(networkError);else{ammoByWeapon[weapon]=local.ammo;showWeapon(next);local.ammo=ammoByWeapon[next];}}
@@ -196,7 +196,7 @@ function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt
  local=mine;showWeapon(mine.weapon||'revolver');
  const ids=new Set();for(const p of s.players){if(p.id===id)continue;ids.add(p.id);if(!peers.has(p.id))peers.set(p.id,cowboy(p.color));const g=peers.get(p.id);g.userData.target=p;g.visible=p.hp>0;g.userData.rightHand.rotation.set(p.gunPitch??0,angleDelta(p.yaw,p.gunYaw??p.yaw),p.reloadUntil?-.4:0,'YXZ');}
  for(const [key,g] of peers)if(!ids.has(key)){scene.remove(g);peers.delete(key);}
- for(const g of peers.values()){const shotgun=g.userData.target.weapon==='shotgun';g.userData.revolver.visible=!shotgun;g.userData.shotgun.visible=shotgun;}
+ for(const g of peers.values()){const shotgun=g.userData.target.weapon==='shotgun';g.userData.rightHand.position.z=shotgun?-.38:-.55;g.userData.revolver.visible=!shotgun;g.userData.shotgun.visible=shotgun;}
 }
 function joinError(message){$('play').title=message;$('play').setAttribute('aria-label','Join. '+message);console.warn(message);}
 $('play').onclick=async()=>{
@@ -301,11 +301,10 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  gunYaw=yaw+handYaw;gunPitch=pitch+handPitch;
  const view=online&&predictionReady?predicted:local;smoothPosition.lerp(positionScratch.set(view.x,view.y+1.5,view.z),1-Math.exp(-35*dt));camera.position.copy(smoothPosition);stepRecoil(wristSpring,dt);stepRecoil(cameraSpring,dt);wristTwist*=Math.exp(-10*dt);camera.rotation.set(pitch+cameraSpring.angle,yaw,0,'YXZ');
  const reloadEnd=online?local.reloadUntil:reloading;
- placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd});
+ placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd,shotgun:weapon==='shotgun'});
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');
  animateRevolver(gun,now,dt);
- animateShotgun(shotgunGun,weapon==='shotgun'?local.ammo:ammoByWeapon.shotgun,dt);
- shotgunGun.userData.barrels.rotation.x+=((reloadEnd?-.55:0)-shotgunGun.userData.barrels.rotation.x)*(1-Math.exp(-12*dt));
+ animateShotgun(shotgunGun,weapon==='shotgun'?local.ammo:ammoByWeapon.shotgun,dt,weapon==='shotgun'&&reloadEnd?1-(reloadEnd-(online?skeetTime():now))/WEAPONS.shotgun.reload:-1);
  shotgunGun.userData.flash.children.forEach((flame,index)=>flame.visible=shotgunGun.userData.lastBarrel===2||index===shotgunGun.userData.lastBarrel);
  shotgunGun.userData.flash.visible=weapon==='shotgun'&&lastShotWeapon==='shotgun'&&now-lastShot<35;
  flashLife=lastShotWeapon===weapon?Math.max(0,.065-(now-lastShot)/1000):0;flash.visible=gapFlash.visible=weapon==='revolver'&&flashLife>0;const flashPower=(flashLife/.065)**1.5;muzzleLight.intensity=(weapon==='shotgun'?42:32)*flashPower;flashOuterMaterial.opacity=.9*flashPower;flashCoreMaterial.opacity=flashPower;barrelHeat*=Math.exp(-1.6*dt);
@@ -319,12 +318,12 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  colorShift.uniforms.exposure.value=shotExposure.visible;
  for(const target of targets.values()){const age=t-target.hitAt,tilt=age<.5?Math.sin(age*32)*.12*Math.exp(-age*8):0;if(target.group.rotation.x!==tilt){target.group.rotation.x=tilt;renderer.shadowMap.needsUpdate=true;}target.face.material.emissive.setHex(age<.16?0x664018:0x000000);}
  if(peers.size)renderer.shadowMap.needsUpdate=true;
- for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(positionScratch.set(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;animateRevolver(g.userData.revolver,now,dt);if(p.weapon==='shotgun')animateShotgun(g.userData.shotgun,p.ammo,dt);}}
+ for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(positionScratch.set(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;animateRevolver(g.userData.revolver,now,dt);if(p.weapon==='shotgun')animateShotgun(g.userData.shotgun,p.ammo,dt,p.reloadUntil?1-(p.reloadUntil-skeetTime())/WEAPONS.shotgun.reload:-1);}}
  pelletMesh.count=0;
- for(let i=projectiles.length-1;i>=0;i--){const p=projectiles[i],age=(now-p.born)/1000,progress=p.round?projectileProgress(p.distance,age):Math.min(1,age/Math.max(.025,p.distance/360));
+ for(let i=projectiles.length-1;i>=0;i--){const p=projectiles[i],age=(now-p.born)/1000,progress=p.round?projectileProgress(p.distance,age):Math.min(1,age/Math.max(.12,p.distance/240));
   positionScratch.copy(p.origin).addScaledVector(p.direction,p.distance*progress);
   if(p.round){p.round.position.copy(positionScratch);p.round.visible=progress<1;}
-  else if(progress<1&&pelletMesh.count<384){pelletRotation.setFromUnitVectors(pelletUp,p.direction);pelletMatrix.compose(positionScratch,pelletRotation,pelletScale);pelletMesh.setMatrixAt(pelletMesh.count++,pelletMatrix);}
+  else if(progress<1&&pelletMesh.count<384){pelletRotation.setFromUnitVectors(pelletUp,p.direction);const width=Math.min(6,Math.max(1,positionScratch.distanceTo(camera.position)*.24));pelletScale.set(width,1,width);pelletMatrix.compose(positionScratch,pelletRotation,pelletScale);pelletMesh.setMatrixAt(pelletMesh.count++,pelletMatrix);}
   if(progress===1&&(p.confirmed||age>2)){if(p.confirmed)impactEffect(p.result,now);if(p.round)scene.remove(p.round);if(pendingShots.get(p.result.shotId)===p)pendingShots.delete(p.result.shotId);projectiles.splice(i,1);}
  }
  if(pelletMesh.count)pelletMesh.instanceMatrix.needsUpdate=true;

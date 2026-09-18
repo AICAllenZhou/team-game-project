@@ -4,7 +4,7 @@ import * as THREE from '../vendor/three.module.js';
 import {shotgunPellets,SHOTGUN_SPREAD,SHOTGUN_SEPARATION,shotgunDischarge} from '../weapons.mjs';
 import {createShotgun,animateShotgun} from '../shotgun-view.js';
 import {resolveBarrelShot} from '../simulation.mjs';
-import {captureBarrelRay,placeWeapon,WEAPON_REACH} from '../weapon-pose.js';
+import {captureBarrelRay,placeWeapon,WEAPON_REACH,SHOTGUN_REACH} from '../weapon-pose.js';
 
 test('double barrel emits exactly 12 pellets per muzzle with normalized bounded spread',()=>{
  const pellets=shotgunPellets({x:0,y:1,z:0},{x:0,y:0,z:-1},{x:1,y:0,z:0},'shot1',2);
@@ -23,8 +23,8 @@ test('spread follows barrel direction and roll even vertically, with safe fallba
 test('shotgun ray uses the longer physical barrels and RMB retains the revolver free-aim pose',()=>{
  const rig=new THREE.Group(),material=new THREE.MeshStandardMaterial(),gun=createShotgun(rig,material,material,material);
  const hip={};placeWeapon(rig,hip);const hipY=rig.position.y;
- for(const focus of [0,.5,1]){placeWeapon(rig,{shotgun:true,focus,yaw:.3,pitch:.1});assert.ok(Math.abs(rig.position.length()-WEAPON_REACH)<1e-9);}
- placeWeapon(rig,{shotgun:true,focus:1});assert.equal(rig.position.y,hipY);
+ for(const focus of [0,.5,1]){placeWeapon(rig,{shotgun:true,focus,yaw:.3,pitch:.1});assert.ok(Math.abs(rig.position.length()-SHOTGUN_REACH)<1e-9);}
+ placeWeapon(rig,{shotgun:true,focus:1});assert.ok(Math.abs(rig.position.y)<Math.abs(hipY));
  const ray=captureBarrelRay(gun),expected=gun.localToWorld(new THREE.Vector3(0,.025,-1.082));assert.ok(ray.origin.distanceTo(expected)<1e-9);
 });
 
@@ -47,4 +47,13 @@ test('each hammer drops independently and the enlarged muzzle stays valid',()=>{
  placeWeapon(rig,{});rig.position.y+=1.5;
  const ray=captureBarrelRay(gun);
  assert.ok(resolveBarrelShot({x:0,y:0,z:0,weapon:'shotgun'}, {muzzle:ray.origin,direction:ray.direction}));
+});
+
+test('reload opens, ejects, inserts each shell and closes without stranded parts',()=>{
+ const m=new THREE.MeshStandardMaterial(),gun=createShotgun(new THREE.Group(),m,m,m),d=gun.userData;
+ animateShotgun(gun,0,1,.12);assert.ok(d.barrels.rotation.x<0);assert.ok(d.shells.every(s=>!s.visible));
+ animateShotgun(gun,0,1,.3);assert.ok(d.ejected.every(s=>s.visible&&s.position.z>0));
+ animateShotgun(gun,0,1,.5);assert.equal(d.shells[0].visible,true);assert.equal(d.shells[1].visible,false);assert.ok(d.ejected.every(s=>!s.visible));
+ animateShotgun(gun,0,1,.8);assert.ok(d.shells.every(s=>s.visible&&Math.abs(s.position.z+.035)<1e-9));
+ animateShotgun(gun,2,1,-1);assert.equal(Math.abs(d.barrels.rotation.x),0);assert.ok([...d.shells,...d.ejected].every(s=>!s.visible));assert.ok(d.supportHand.position.distanceTo(new THREE.Vector3(-.025,-.117,-.32))<1e-6);
 });

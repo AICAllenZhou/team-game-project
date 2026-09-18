@@ -20,7 +20,7 @@ function trace(points,width,originX=864,bevel=.003){
 }
 // Clip only the unseen shoulder end, preserving the traced wrist in first person.
 function clipShoulder(points,minX){const result=[];for(let i=0;i<points.length;i++){const a=points[i],b=points[(i+1)%points.length],inside=a[0]>=minX,nextInside=b[0]>=minX;if(inside)result.push(a);if(inside!==nextInside){const t=(minX-a[0])/(b[0]-a[0]);result.push([minX,a[1]+(b[1]-a[1])*t]);}}return result;}
-const stockGeometry=trace(stockOutline,.085),wristGeometry=trace(clipShoulder(stockOutline,630),.075);
+const stockGeometry=trace(stockOutline,.085),wristGeometry=trace(clipShoulder(stockOutline,750),.075);
 const forendGeometry=trace(forendOutline,.073,920);
 const receiverGeometry=trace(actionOutline,.117);
 const hammerGeometry=trace(hammerOutline,.013,864,.0015);
@@ -46,17 +46,46 @@ export function createShotgun(parent,steel,wood,skin,firstPerson=false){
  part(trace([[879,117],[911,104],[920,104],[920,165],[882,165],[873,145]],.117,920),steelMaterial,barrels);
  part(ribGeometry,steelMaterial,barrels);part(forendGeometry,woodMaterial,barrels);
  part(new THREE.SphereGeometry(.006,8,6),beadMaterial,barrels,0,.052,-1.005);
- part(new THREE.SphereGeometry(.10,8,6),skin,barrels,-.025,-.117,-.32);
+ const supportHand=part(new THREE.SphereGeometry(.10,8,6),skin,barrels,-.025,-.117,-.32);
  const flash=new THREE.Group();barrels.add(flash);flash.visible=false;
  const flameMaterial=new THREE.MeshBasicMaterial({color:0xffe4ad,transparent:true,opacity:.8,depthWrite:false});
  for(const x of [-SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE)]){const flame=part(new THREE.ConeGeometry(.045,.2,5),flameMaterial,flash,x,.025,-1.12);flame.rotation.x=-Math.PI/2;}
+ // Reload parts stay in child groups so static batching cannot absorb them.
+ const handPivot=new THREE.Group();barrels.add(handPivot);handPivot.add(supportHand);
+ const shellBody=new THREE.MeshStandardMaterial({color:0x943a27,roughness:.8,flatShading:true}),shellBrass=new THREE.MeshStandardMaterial({color:0xb69344,roughness:.45,metalness:.4,flatShading:true});
+ function shell(){const g=new THREE.Group();barrels.add(g);const body=part(new THREE.CylinderGeometry(.015,.015,.078,8),shellBody,g);body.rotation.x=Math.PI/2;const cap=part(new THREE.CylinderGeometry(.017,.017,.016,8),shellBrass,g,0,0,.043);cap.rotation.x=Math.PI/2;g.visible=false;return g;}
+ const shells=[shell(),shell()],ejected=[shell(),shell()];
+ for(const x of [-SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE)])part(new THREE.CircleGeometry(.018,8),boreMaterial,barrels,x,.025,.002);
  batchMeshes(gun);batchMeshes(barrels);
- gun.userData={type:'shotgun',muzzleZ:-1.022,muzzleObject:barrels,barrels,flash,hammers,lastBarrel:0};
+ gun.userData={type:'shotgun',muzzleZ:-1.022,muzzleObject:barrels,barrels,flash,hammers,supportHand,handTarget:new THREE.Vector3(-.025,-.117,-.32),shells,ejected,lastBarrel:0};
  gun.traverse(mesh=>{if(mesh.isMesh){mesh.castShadow=false;mesh.receiveShadow=true;}});
  return gun;
 }
 
-export function animateShotgun(gun,ammo,dt){
- const fired=2-Math.max(0,Math.min(2,ammo));
- gun.userData.hammers.forEach((hammer,index)=>{const target=index<fired?-.75:.38;hammer.rotation.x+=(target-hammer.rotation.x)*(1-Math.exp(-45*dt));});
+// All phases derive from reload progress, so pausing and packet cadence do
+// not skip ejection, create new meshes, or leave shells floating after reload.
+export function animateShotgun(gun,ammo,dt,reloadProgress=-1){
+ const data=gun.userData,reloading=reloadProgress>=0,p=Math.max(0,Math.min(1,reloadProgress));
+ const ease=(a,b)=>{const t=Math.max(0,Math.min(1,(p-a)/(b-a)));return t*t*(3-2*t);};
+ const opening=reloading?ease(0,.18)*(1-ease(.82,1)):0;
+ data.barrels.rotation.x=-.72*opening;
+ const fired=reloading&&p>.78?0:2-Math.max(0,Math.min(2,ammo));
+ data.hammers.forEach((hammer,index)=>{const target=index<fired?-.75:.38;hammer.rotation.x+=(target-hammer.rotation.x)*(1-Math.exp(-45*dt));});
+ for(let i=0;i<2;i++){
+  const side=i===0?-1:1,x=side*SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),spent=data.ejected[i],fresh=data.shells[i];
+  spent.visible=reloading&&p>=.16&&p<.45;
+  const flight=Math.max(0,(p-.19)*2.4);
+  spent.position.set(x+side*flight*.12,.025+flight*.4-flight*flight*1.2,-.035+flight*1.25);
+  spent.rotation.set(flight*5,side*flight*4,0);
+  const start=i===0?.43:.61,insert=ease(start,start+.17);
+  fresh.visible=reloading&&p>=start;
+  fresh.position.set(x+side*.035*(1-insert),.025+.085*(1-insert),-.035+.24*(1-insert));fresh.rotation.set(0,0,0);
+ }
+ const hand=data.handTarget;
+ if(reloading){
+  if(p<.4){const t=ease(.08,.32);hand.set(-.025-.2*t,-.117-.04*t,-.32+.6*t);}
+  else if(p<.81){const i=p<.61?0:1,shell=data.shells[i];hand.set(shell.position.x-.07,shell.position.y-.06,shell.position.z+.035);}
+  else{const t=ease(.81,.99);hand.set(-.09+.065*t,-.035-.082*t,.03-.35*t);}
+ }else hand.set(-.025,-.117,-.32);
+ data.supportHand.position.lerp(hand,1-Math.exp(-22*dt));
 }
