@@ -38,5 +38,21 @@ test('multiplayer shares room state, isolates rooms, enforces ammo and reload',a
  await post('launch',{token:a.token});await post('launch',{token:b.token});
  const shared=await state(b.token);assert.equal(shared.clays.length,1);assert.ok(shared.clays[0].vz<0);
  assert.equal((await state(c.token)).clays.length,0);
+ // Both barrels are one authoritative shot: exactly 24 pellet traces and
+ // two shells consumed. Switching cannot refill an empty shotgun.
+ await post('equip',{token:c.token,weapon:'shotgun'});let shotgunState=(await state(c.token)).players.find(p=>p.id===c.id);assert.equal(shotgunState.weapon,'shotgun');assert.equal(shotgunState.ammo,2);
+ const pelletController=new AbortController();controllers.push(pelletController);const pelletTimer=setTimeout(()=>pelletController.abort(),3000);
+ try{
+  const stream=await fetch('http://localhost:3099/api/events?token='+c.token,{signal:pelletController.signal});
+  await post('fire',{token:c.token,shotId:'double-test',fan:true,direction:{x:0,y:1,z:0},barrelRight:{x:1,y:0,z:0}});
+  const reader=stream.body.getReader();let buffer='',shot;
+  while(!shot){const {value,done}=await reader.read();assert.equal(done,false);buffer+=new TextDecoder().decode(value);const match=buffer.match(/event: shot\ndata: ([^\n]+)/);if(match)shot=JSON.parse(match[1]);}
+  assert.equal(shot.weapon,'shotgun');assert.equal(shot.fan,false);assert.equal(shot.pellets.length,24);assert.notEqual(shot.pellets[0].origin.x,shot.pellets[12].origin.x);
+ }finally{clearTimeout(pelletTimer);pelletController.abort();}
+ assert.equal((await state(c.token)).players.find(p=>p.id===c.id).ammo,0);
+ await post('equip',{token:c.token,weapon:'revolver'});await post('equip',{token:c.token,weapon:'shotgun'});await post('fire',{token:c.token});assert.equal((await state(c.token)).players.find(p=>p.id===c.id).ammo,0);
+ await post('reload',{token:c.token});await post('equip',{token:c.token,weapon:'revolver'});shotgunState=(await state(c.token)).players.find(p=>p.id===c.id);assert.equal(shotgunState.weapon,'shotgun');assert.ok(shotgunState.reloadUntil>Date.now());
+ await new Promise(resolve=>setTimeout(resolve,2450));assert.equal((await state(c.token)).players.find(p=>p.id===c.id).ammo,2);
+ for(const file of ['weapons.mjs','shotgun-view.js'])assert.equal((await fetch('http://localhost:3099/'+file)).status,200);
  }finally{controllers.forEach(c=>c.abort());child.kill();}
 });

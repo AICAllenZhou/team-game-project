@@ -1,6 +1,6 @@
 export const LAUNCHER={x:2.4,y:.92,z:3.2};
 export const CLAY_RADIUS=.44,CLAY_HALF_HEIGHT=.065,CLAY_TILT=.58;
-export const LAUNCH_COOLDOWN=1000,MAX_CLAYS=3;
+export const LAUNCH_COOLDOWN=650,MAX_CLAYS=3;
 const GRAVITY=9.81,DRAG=.14;
 
 export function clayPose(flight,now,out={}){
@@ -26,8 +26,8 @@ export function createSkeetRange(){
  function launch(now,random=Math.random){
   if(now-lastLaunch<LAUNCH_COOLDOWN||flights.length>=MAX_CLAYS)return null;
   lastLaunch=now;
-  const angle=(random()-.5)*.14,speed=5.4+(random()-.5)*.5;
-  const flight={id:`clay-${++sequence}`,born:now,x:LAUNCHER.x,y:LAUNCHER.y,z:LAUNCHER.z-.46,vx:Math.sin(angle)*speed,vy:8.6+(random()-.5)*.6,vz:-Math.cos(angle)*speed,spin:11+(random()-.5)*2};
+  const angle=(random()-.5)*.62,elevation=.55+random()*.28,speed=14+(random()-.5)*1.2,horizontal=Math.cos(elevation)*speed;
+  const flight={id:`clay-${++sequence}`,born:now,x:LAUNCHER.x,y:LAUNCHER.y,z:LAUNCHER.z-.46,vx:Math.sin(angle)*horizontal,vy:Math.sin(elevation)*speed,vz:-Math.cos(angle)*horizontal,spin:11+(random()-.5)*2};
   flights.push(flight);return flight;
  }
  function breakClay(id,now,direction={x:0,y:0,z:0},ground=false){

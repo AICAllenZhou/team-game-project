@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import {createSkeetRange,clayPose,clayHit,stepClayShard,LAUNCHER,CLAY_HALF_HEIGHT,LAUNCH_COOLDOWN,MAX_CLAYS} from '../skeet.mjs';
 import {traceShot} from '../simulation.mjs';
 
-test('launch is manual, throws away from spawn and bounds the small random variation',()=>{
+test('launch is manual, faster and varies horizontal angle and elevation within bounds',()=>{
  const range=createSkeetRange();assert.equal(range.flights.length,0);range.update(5000);assert.equal(range.flights.length,0);
- for(const random of [()=>0,()=>.5,()=>1]){const flight=createSkeetRange().launch(0,random);assert.ok(flight.vz< -5);assert.ok(Math.abs(flight.vx)<.41);assert.ok(Math.abs(flight.vy-8.6)<=.300000001);assert.equal(flight.x,LAUNCHER.x);}
+ const samples=[0,.5,1].map(value=>createSkeetRange().launch(0,()=>value));
+ for(const flight of samples){assert.ok(flight.vz< -9);assert.ok(Math.abs(Math.atan2(flight.vx,-flight.vz))<=.310001);assert.ok(Math.hypot(flight.vx,flight.vy,flight.vz)>=13.3999);assert.equal(flight.x,LAUNCHER.x);}
+ assert.ok(samples[0].vx<0&&samples[2].vx>0);assert.ok(samples[2].vy-samples[0].vy>3);assert.equal(LAUNCH_COOLDOWN,650);
  range.launch(6000);assert.equal(range.launch(6001),null);assert.equal(range.flights.length,1);
  for(let i=1;i<MAX_CLAYS;i++)range.launch(6000+i*LAUNCH_COOLDOWN);
  assert.equal(range.launch(10000),null);assert.equal(range.flights.length,MAX_CLAYS);

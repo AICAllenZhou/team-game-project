@@ -13,10 +13,10 @@ export function createWeaponAudio(){
   ready,
   resume:()=>context.resume(),
   pause(){for(const source of voices)source.stop();voices.clear();return context.suspend();},
-  play(){
+  play(rate=1){
    if(!buffers.length)return;
    if(context.state==='suspended')context.resume().catch(()=>{});
-   const source=context.createBufferSource();source.buffer=buffers[0];
+   const source=context.createBufferSource();source.buffer=buffers[0];source.playbackRate.value=rate;
    source.connect(master);voices.add(source);source.onended=()=>{voices.delete(source);source.disconnect();};source.start();
   }
  };
