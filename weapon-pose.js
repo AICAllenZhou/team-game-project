@@ -4,7 +4,7 @@ export const WEAPON_REACH = .78, SHOTGUN_REACH = .62;
 export function placeWeapon(rig, {yaw = 0, pitch = 0, bob = 0, lean = 0, recoil = 0, reload = false, shotgun = false}) {
   const horizontal = Math.max(-.85, Math.min(.85, yaw));
   const vertical = Math.max(-.65, Math.min(.65, pitch));
-  rig.position.set((shotgun ? .16 : 0) - horizontal * .45, -.23 + vertical * .4 + bob * .4 - (reload ? (shotgun ? -.05 : .12) : 0), -.67);
+  rig.position.set(-horizontal * .45, -.23 + vertical * .4 + bob * .4 - (reload ? (shotgun ? -.05 : .12) : 0), -.67);
   rig.position.setLength(shotgun ? SHOTGUN_REACH : WEAPON_REACH);
   rig.rotation.set(vertical + recoil * 1.5, horizontal, reload ? (shotgun ? -.22 : -.4) : lean * .16, 'YXZ');
 }
