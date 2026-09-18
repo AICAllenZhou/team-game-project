@@ -1,31 +1,56 @@
 import * as THREE from './vendor/three.module.js';
 import {batchMeshes} from './render-batches.js';
+import {SHOTGUN_SEPARATION} from './weapons.mjs';
+
+const steelMaterial=new THREE.MeshStandardMaterial({color:0x494944,metalness:.35,roughness:.58});
+const woodMaterial=new THREE.MeshStandardMaterial({color:0x62361e,roughness:.72});
+const boreMaterial=new THREE.MeshStandardMaterial({color:0x101110,roughness:1});
+const beadMaterial=new THREE.MeshStandardMaterial({color:0xae9466,roughness:.6});
+// Side outlines hand-traced from the supplied 1912 x 492 reference photo.
+// The barrel is 1.022 units long; the remaining proportions use that scale.
+const scale=1.022/(1887-920),axisY=135;
+const stockOutline=[[90,270],[97,255],[112,247],[476,203],[515,202],[537,209],[551,225],[704,164],[792,137],[854,126],[879,155],[875,204],[756,232],[674,253],[626,282],[590,319],[565,345],[544,353],[525,350],[507,338],[500,318],[487,344],[404,380],[312,420],[133,490],[96,300]];
+const forendOutline=[[1050,161],[1418,158],[1448,178],[1050,199]];
+const actionOutline=[[868,161],[918,165],[1048,163],[1048,195],[888,206],[870,198]];
+const hammerOutline=[[807,191],[831,186],[839,176],[827,151],[818,127],[813,109],[819,103],[826,108],[831,128],[841,145],[857,168],[866,185],[857,198],[829,201]];
+function trace(points,width,originX=864,bevel=.003){
+ const shape=new THREE.Shape();points.forEach(([x,y],i)=>{const px=(x-originX)*scale,py=.025+(axisY-y)*scale;i?shape.lineTo(px,py):shape.moveTo(px,py);});shape.closePath();
+ const geometry=new THREE.ExtrudeGeometry(shape,{depth:width-2*bevel,bevelEnabled:bevel>0,bevelSize:bevel,bevelThickness:bevel,bevelSegments:2,steps:1});
+ geometry.translate(0,0,-width/2+bevel);geometry.rotateY(Math.PI/2);return geometry;
+}
+// Clip only the unseen shoulder end, preserving the traced wrist in first person.
+function clipShoulder(points,minX){const result=[];for(let i=0;i<points.length;i++){const a=points[i],b=points[(i+1)%points.length],inside=a[0]>=minX,nextInside=b[0]>=minX;if(inside)result.push(a);if(inside!==nextInside){const t=(minX-a[0])/(b[0]-a[0]);result.push([minX,a[1]+(b[1]-a[1])*t]);}}return result;}
+const stockGeometry=trace(stockOutline,.085),wristGeometry=trace(clipShoulder(stockOutline,630),.075);
+const forendGeometry=trace(forendOutline,.073,920);
+const receiverGeometry=trace(actionOutline,.117);
+const hammerGeometry=trace(hammerOutline,.013,864,.0015);
+// Tapered, hollow barrels, with a modest 20 sides and smooth surface normals.
+const barrelGeometry=new THREE.LatheGeometry([[.016,.93],[.016,1.022],[.022,1.022],[.023,1.014],[.026,.4],[.033,.07],[.033,0]].reverse().map(([r,z])=>new THREE.Vector2(r,z)),20);barrelGeometry.rotateX(-Math.PI/2);
+const ribGeometry=trace([[920,103],[1887,112],[1887,116],[920,107]],.014,920,.0005);
+function curvedStrip(points,radius){return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(([x,y])=>new THREE.Vector3(0,.025+(axisY-y)*scale,(864-x)*scale))),14,radius,5,false);}
+const guardGeometry=curvedStrip([[785,225],[751,244],[747,270],[767,287],[811,289],[852,278],[871,258],[866,236],[853,221]],.004);
+const triggerGeometry=curvedStrip([[817,224],[813,241],[816,263],[826,279]],.003);
 export function createShotgun(parent,steel,wood,skin,firstPerson=false){
  const gun=new THREE.Group();parent.add(gun);
- function box(w,h,d,material,x,y,z,p=gun){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),material);m.position.set(x,y,z);p.add(m);return m;}
- // A handful of flat faces define the old-fashioned stock and tapered fore-end.
- function profile(points,width,material,p=gun,x=0){const shape=new THREE.Shape();points.forEach(([z,y],i)=>i?shape.lineTo(-z,y):shape.moveTo(-z,y));shape.closePath();const g=new THREE.ExtrudeGeometry(shape,{depth:width,bevelEnabled:false,steps:1});g.translate(0,0,-width/2);g.rotateY(Math.PI/2);const m=new THREE.Mesh(g,material);m.position.x=x;p.add(m);return m;}
- box(.19,.095,.23,steel,0,-.005,.015);
- profile([[.07,.025],[.22,-.025],[.32,-.13],[.26,-.22],[.17,-.12],[.07,-.07]],.115,wood);
- // The shoulder end is outside the first-person view, avoiding sight obstruction.
- if(!firstPerson){profile([[.25,-.07],[.62,-.10],[.66,-.36],[.40,-.28],[.25,-.22]],.14,wood);box(.15,.26,.025,steel,0,-.23,.65);}
- // Two small exposed hammers, without engraving or extra ornamental parts.
- for(const x of [-.082,.082])profile([[.07,.015],[.105,.045],[.125,.11],[.10,.125],[.08,.07],[.04,.05]],.022,steel,gun,x);
- const guard=new THREE.Mesh(new THREE.TorusGeometry(.065,.009,4,8),steel);guard.rotation.y=Math.PI/2;guard.scale.set(1,.7,1);guard.position.set(0,-.115,.06);gun.add(guard);
+ function part(geometry,material,p=gun,x=0,y=0,z=0){const mesh=new THREE.Mesh(geometry,material);mesh.position.set(x,y,z);p.add(mesh);return mesh;}
+ part(firstPerson?wristGeometry:stockGeometry,woodMaterial);
+ part(receiverGeometry,steelMaterial);
+ for(const side of [-1,1])part(hammerGeometry,steelMaterial,gun,side*.045);
+ part(guardGeometry,steelMaterial);part(triggerGeometry,steelMaterial,gun,-.012);part(triggerGeometry,steelMaterial,gun,.012,0,.036);
  const barrels=new THREE.Group();barrels.position.z=-.06;gun.add(barrels);
- const dark=new THREE.MeshStandardMaterial({color:0x171918,roughness:.85});
- for(const x of [-.066,.066]){
-  const barrel=new THREE.Mesh(new THREE.CylinderGeometry(.049,.058,1.02,10),steel);barrel.rotation.x=Math.PI/2;barrel.position.set(x,.025,-.51);barrels.add(barrel);
-  const bore=new THREE.Mesh(new THREE.CircleGeometry(.035,10),dark);bore.rotation.y=Math.PI;bore.position.set(x,.025,-1.021);barrels.add(bore);
+ for(const x of [-SHOTGUN_SEPARATION/2,SHOTGUN_SEPARATION/2]){
+  part(barrelGeometry,steelMaterial,barrels,x,.025);
+  const bore=part(new THREE.CircleGeometry(.016,20),boreMaterial,barrels,x,.025,-.93);bore.rotation.y=Math.PI;
  }
- profile([[-.12,-.025],[-.55,-.03],[-.64,-.065],[-.51,-.095],[-.12,-.10]],.14,wood,barrels);
- const bead=new THREE.Mesh(new THREE.SphereGeometry(.012,6,4),new THREE.MeshStandardMaterial({color:0xcfaa63,roughness:.6}));bead.position.set(0,.082,-.99);barrels.add(bead);
- const hand=new THREE.Mesh(new THREE.SphereGeometry(.11,8,6),skin);hand.position.set(-.04,-.14,-.31);barrels.add(hand);
+ part(trace([[879,117],[911,104],[920,104],[920,165],[882,165],[873,145]],.117,920),steelMaterial,barrels);
+ part(ribGeometry,steelMaterial,barrels);part(forendGeometry,woodMaterial,barrels);
+ part(new THREE.SphereGeometry(.006,8,6),beadMaterial,barrels,0,.052,-1.005);
+ part(new THREE.SphereGeometry(.10,12,8),skin,barrels,-.025,-.117,-.32);
  const flash=new THREE.Group();barrels.add(flash);flash.visible=false;
  const flameMaterial=new THREE.MeshBasicMaterial({color:0xffe4ad,transparent:true,opacity:.8,depthWrite:false});
- for(const x of [-.066,.066]){const flame=new THREE.Mesh(new THREE.ConeGeometry(.055,.2,5),flameMaterial);flame.rotation.x=-Math.PI/2;flame.position.set(x,.025,-1.12);flash.add(flame);}
+ for(const x of [-SHOTGUN_SEPARATION/2,SHOTGUN_SEPARATION/2]){const flame=part(new THREE.ConeGeometry(.045,.2,5),flameMaterial,flash,x,.025,-1.12);flame.rotation.x=-Math.PI/2;}
  batchMeshes(gun);batchMeshes(barrels);
  gun.userData={type:'shotgun',muzzleZ:-1.022,muzzleObject:barrels,barrels,flash};
- gun.traverse(m=>{if(m.isMesh){m.castShadow=false;m.receiveShadow=true;}});
+ gun.traverse(mesh=>{if(mesh.isMesh){mesh.castShadow=false;mesh.receiveShadow=true;}});
  return gun;
 }

@@ -19,10 +19,10 @@ test('spread follows barrel direction and roll even vertically, with safe fallba
  }
  const rolled=shotgunPellets({x:0,y:0,z:0},{x:0,y:0,z:-1},{x:0,y:1,z:0},'roll');assert.equal(rolled[0].origin.y,-SHOTGUN_SEPARATION/2);assert.equal(rolled[12].origin.y,SHOTGUN_SEPARATION/2);
 });
-test('shotgun ray uses the longer physical barrels and raised aim retains fixed reach',()=>{
+test('shotgun ray uses the longer physical barrels and RMB retains the revolver free-aim pose',()=>{
  const rig=new THREE.Group(),material=new THREE.MeshStandardMaterial(),gun=createShotgun(rig,material,material,material);
  const hip={};placeWeapon(rig,hip);const hipY=rig.position.y;
  for(const focus of [0,.5,1]){placeWeapon(rig,{shotgun:true,focus,yaw:.3,pitch:.1});assert.ok(Math.abs(rig.position.length()-WEAPON_REACH)<1e-9);}
- placeWeapon(rig,{shotgun:true,focus:1});assert.ok(rig.position.y>hipY);
+ placeWeapon(rig,{shotgun:true,focus:1});assert.equal(rig.position.y,hipY);
  const ray=captureBarrelRay(gun),expected=gun.localToWorld(new THREE.Vector3(0,.025,-1.082));assert.ok(ray.origin.distanceTo(expected)<1e-9);
 });

@@ -300,7 +300,7 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  gunYaw=yaw+handYaw;gunPitch=pitch+handPitch;
  const view=online&&predictionReady?predicted:local;smoothPosition.lerp(positionScratch.set(view.x,view.y+1.5,view.z),1-Math.exp(-35*dt));camera.position.copy(smoothPosition);stepRecoil(wristSpring,dt);stepRecoil(cameraSpring,dt);wristTwist*=Math.exp(-10*dt);camera.rotation.set(pitch+cameraSpring.angle,yaw,0,'YXZ');
  const reloadEnd=online?local.reloadUntil:reloading;
- placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd,shotgun:weapon==='shotgun',focus:focusBlend});
+ placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd});
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');
  animateRevolver(gun,now,dt);
  shotgunGun.userData.barrels.rotation.x+=((reloadEnd?-.55:0)-shotgunGun.userData.barrels.rotation.x)*(1-Math.exp(-12*dt));
