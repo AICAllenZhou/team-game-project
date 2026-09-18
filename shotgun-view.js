@@ -64,19 +64,21 @@ export function createShotgun(parent,steel,wood,skin,firstPerson=false){
 
 // All phases derive from reload progress, so pausing and packet cadence do
 // not skip ejection, create new meshes, or leave shells floating after reload.
-export function animateShotgun(gun,ammo,dt,reloadProgress=-1){
+export function animateShotgun(gun,ammo,dt,reloadProgress=-1,onEject=null){
  const data=gun.userData,reloading=reloadProgress>=0,p=Math.max(0,Math.min(1,reloadProgress));
  const ease=(a,b)=>{const t=Math.max(0,Math.min(1,(p-a)/(b-a)));return t*t*(3-2*t);};
+ if(!reloading||p<(data.previousReloadProgress??0)-.1)data.didEject=false;
+ data.previousReloadProgress=p;
  const opening=reloading?ease(0,.18)*(1-ease(.82,1)):0;
  data.barrels.rotation.x=-.72*opening;
+ if(reloading&&p>=.19&&!data.didEject){data.didEject=true;if(onEject)onEject(data.barrels);}
  const fired=reloading&&p>.78?0:2-Math.max(0,Math.min(2,ammo));
  data.hammers.forEach((hammer,index)=>{const target=index<fired?-.75:.38;hammer.rotation.x+=(target-hammer.rotation.x)*(1-Math.exp(-45*dt));});
  for(let i=0;i<2;i++){
   const side=i===0?-1:1,x=side*SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),spent=data.ejected[i],fresh=data.shells[i];
-  spent.visible=reloading&&p>=.16&&p<.45;
-  const flight=Math.max(0,(p-.19)*2.4);
-  spent.position.set(x+side*flight*.12,.025+flight*.4-flight*flight*1.2,-.035+flight*1.25);
-  spent.rotation.set(flight*5,side*flight*4,0);
+  // The cases are handed to world physics as soon as they leave the breech.
+  spent.visible=reloading&&p>=.16&&p<.19;
+  spent.position.set(x,.025,-.035+Math.max(0,(p-.16)/.03)*.06);spent.rotation.set(0,0,0);
   const start=i===0?.43:.61,insert=ease(start,start+.17);
   fresh.visible=reloading&&p>=start;
   fresh.position.set(x+side*.035*(1-insert),.025+.085*(1-insert),-.035+.24*(1-insert));fresh.rotation.set(0,0,0);

@@ -4,7 +4,8 @@ import {createGameLoop} from './game-loop.js';
 import {batchMeshes,createParticles} from './render-batches.js';
 import {createSkeetRange,clayPose} from './skeet.mjs';
 import {createSkeetView} from './skeet-view.js';
-import {WEAPONS,shotgunPellets,SHOTGUN_INTERVAL,shotgunDischarge} from './weapons.mjs';
+import {WEAPONS,shotgunPellets,SHOTGUN_INTERVAL,shotgunDischarge,SHOTGUN_SEPARATION,SHOTGUN_MODEL_SCALE} from './weapons.mjs';
+import {createShellPhysics} from './shell-physics.js';
 import {createShotgun,animateShotgun} from './shotgun-view.js';
 import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil,captureBarrelRay} from './weapon-pose.js';
 import {move,TRAINING_TARGETS,traceShot,PROJECTILE_SPEED,projectileProgress,predictionCorrection,settlePrediction,FAN_INTERVAL,FAN_CLICK_WINDOW} from './simulation.mjs';
@@ -13,6 +14,8 @@ const gameLoop=createGameLoop({onFrame:now=>frame(now)});
 let renderReady=false,inputTimer=null,idleTimer=null,pendingState=null,stopInputPending=false;
 const renderer=new THREE.WebGLRenderer({canvas:$('game'),antialias:false});renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.setClearColor(0x9b9387);
 const scene=new THREE.Scene();scene.fog=new THREE.Fog(0x9b9387,38,100);
+const shellPhysics=createShellPhysics(scene);
+function ejectShells(frame){for(const side of [-1,1])shellPhysics.eject(frame,side*SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE));}
 const scenery=new THREE.Group();scene.add(scenery);
 renderer.shadowMap.autoUpdate=false;renderer.shadowMap.needsUpdate=true;
 // Keep one rendering path active so firing/aiming cannot switch render targets
@@ -304,7 +307,7 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd,shotgun:weapon==='shotgun'});
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');
  animateRevolver(gun,now,dt);
- animateShotgun(shotgunGun,weapon==='shotgun'?local.ammo:ammoByWeapon.shotgun,dt,weapon==='shotgun'&&reloadEnd?1-(reloadEnd-(online?skeetTime():now))/WEAPONS.shotgun.reload:-1);
+ animateShotgun(shotgunGun,weapon==='shotgun'?local.ammo:ammoByWeapon.shotgun,dt,weapon==='shotgun'&&reloadEnd?1-(reloadEnd-(online?skeetTime():now))/WEAPONS.shotgun.reload:-1,ejectShells);
  shotgunGun.userData.flash.children.forEach((flame,index)=>flame.visible=shotgunGun.userData.lastBarrel===2||index===shotgunGun.userData.lastBarrel);
  shotgunGun.userData.flash.visible=weapon==='shotgun'&&lastShotWeapon==='shotgun'&&now-lastShot<35;
  flashLife=lastShotWeapon===weapon?Math.max(0,.065-(now-lastShot)/1000):0;flash.visible=gapFlash.visible=weapon==='revolver'&&flashLife>0;const flashPower=(flashLife/.065)**1.5;muzzleLight.intensity=(weapon==='shotgun'?42:32)*flashPower;flashOuterMaterial.opacity=.9*flashPower;flashCoreMaterial.opacity=flashPower;barrelHeat*=Math.exp(-1.6*dt);
@@ -318,7 +321,7 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  colorShift.uniforms.exposure.value=shotExposure.visible;
  for(const target of targets.values()){const age=t-target.hitAt,tilt=age<.5?Math.sin(age*32)*.12*Math.exp(-age*8):0;if(target.group.rotation.x!==tilt){target.group.rotation.x=tilt;renderer.shadowMap.needsUpdate=true;}target.face.material.emissive.setHex(age<.16?0x664018:0x000000);}
  if(peers.size)renderer.shadowMap.needsUpdate=true;
- for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(positionScratch.set(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;animateRevolver(g.userData.revolver,now,dt);if(p.weapon==='shotgun')animateShotgun(g.userData.shotgun,p.ammo,dt,p.reloadUntil?1-(p.reloadUntil-skeetTime())/WEAPONS.shotgun.reload:-1);}}
+ for(const g of peers.values()){const p=g.userData.target;if(p){g.position.lerp(positionScratch.set(p.x,p.y,p.z),1-Math.exp(-15*dt));g.rotation.y=p.yaw;animateRevolver(g.userData.revolver,now,dt);if(p.weapon==='shotgun')animateShotgun(g.userData.shotgun,p.ammo,dt,p.reloadUntil?1-(p.reloadUntil-skeetTime())/WEAPONS.shotgun.reload:-1,ejectShells);}}
  pelletMesh.count=0;
  for(let i=projectiles.length-1;i>=0;i--){const p=projectiles[i],age=(now-p.born)/1000,progress=p.round?projectileProgress(p.distance,age):Math.min(1,age/Math.max(.12,p.distance/240));
   positionScratch.copy(p.origin).addScaledVector(p.direction,p.distance*progress);
@@ -327,7 +330,7 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
   if(progress===1&&(p.confirmed||age>2)){if(p.confirmed)impactEffect(p.result,now);if(p.round)scene.remove(p.round);if(pendingShots.get(p.result.shotId)===p)pendingShots.delete(p.result.shotId);projectiles.splice(i,1);}
  }
  if(pelletMesh.count)pelletMesh.instanceMatrix.needsUpdate=true;
- particles.update(dt);
+ particles.update(dt);shellPhysics.update(dt);
  if(!online)for(const broken of skeetRange.update(now))skeetView.shatter(broken,now);
  skeetView.update(online?serverClays:skeetRange.flights,skeetTime(),dt,now);
  const aimOpacity=weapon==='revolver'&&locked&&local.hp>0&&!reloadEnd?focusBlend:0;
