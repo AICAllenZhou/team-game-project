@@ -57,3 +57,8 @@ test('reload opens, ejects, inserts each shell and closes without stranded parts
  animateShotgun(gun,0,1,.8);assert.ok(d.shells.every(s=>s.visible&&Math.abs(s.position.z+.035)<1e-9));
  animateShotgun(gun,2,1,-1);assert.equal(Math.abs(d.barrels.rotation.x),0);assert.ok([...d.shells,...d.ejected].every(s=>!s.visible));assert.ok(d.supportHand.position.distanceTo(new THREE.Vector3(-.025,-.117,-.32))<1e-6);
 });
+
+test('hammer striking tips meet the rear breech behind the barrel axes',()=>{
+ const m=new THREE.MeshStandardMaterial(),gun=createShotgun(new THREE.Group(),m,m,m);animateShotgun(gun,0,1);gun.updateMatrixWorld(true);
+ for(const hammer of gun.userData.hammers){const tip=hammer.localToWorld(new THREE.Vector3(0,.063,.007)),breech=gun.localToWorld(new THREE.Vector3(hammer.position.x,.025,-.015));assert.ok(tip.distanceTo(breech)<.01);}
+});

@@ -32,3 +32,10 @@ test('particle draws are bounded, fade independently, expire and reuse their buf
  particles.emit(origin,direction,0x00ff00,3,false);particles.update(0);assert.equal(sparks.mesh.count,3);assert.equal(sparks.mesh.instanceMatrix.array,buffer);
  const color=new THREE.Color();sparks.mesh.getColorAt(0,color);assert.equal(color.getHex(),0x00ff00);
 });
+
+test('shotgun smoke jets forward and remains visible while expanding',()=>{
+ const particles=createParticles(new THREE.Scene()),origin=new THREE.Vector3(),direction=new THREE.Vector3(0,0,-1);
+ particles.emit(origin,direction,0xb5aea1,8,true,{speed:5,spread:.65,life:.7,size:1.5,opacity:.16,drag:2.3});particles.update(.1);
+ const smoke=particles.groups[0],matrix=new THREE.Matrix4(),position=new THREE.Vector3();assert.equal(smoke.mesh.count,8);
+ for(let i=0;i<8;i++){smoke.mesh.getMatrixAt(i,matrix);position.setFromMatrixPosition(matrix);assert.ok(position.z<-.25);assert.ok(smoke.opacity.getX(i)>.1);}
+});

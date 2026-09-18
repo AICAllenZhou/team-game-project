@@ -48,19 +48,19 @@ export function createParticles(scene){
   Object.assign(group,{mesh,opacity});
   for(let i=0;i<group.capacity;i++)particles.push({group,smoke:group.smoke,life:0,total:1,position:new THREE.Vector3(),velocity:new THREE.Vector3(),color:new THREE.Color(),scale:1});
  }
- function emit(origin,direction,color,count,smoke){
+ function emit(origin,direction,color,count,smoke,options={}){
   for(const p of particles){if(count<=0)break;if(p.life>0||p.smoke!==smoke)continue;count--;
-   p.life=p.total=smoke?.32+Math.random()*.2:.18+Math.random()*.2;p.position.copy(origin);p.color.setHex(color);
-   p.velocity.copy(direction).multiplyScalar(smoke?.4:2+Math.random()*3);
-   p.velocity.x+=(Math.random()-.5)*1.5;p.velocity.y+=Math.random()*.8;p.velocity.z+=(Math.random()-.5)*1.5;
+   p.life=p.total=options.life??(smoke?.32+Math.random()*.2:.18+Math.random()*.2);p.scale=options.size??1;p.alpha=options.opacity??(smoke?.045:1);p.drag=options.drag??0;p.position.copy(origin);p.color.setHex(color);
+   p.velocity.copy(direction).multiplyScalar(options.speed?(options.speed*(.75+Math.random()*.5)):(smoke?.4:2+Math.random()*3));
+   const spread=options.spread??1.5;p.velocity.x+=(Math.random()-.5)*spread;p.velocity.y+=Math.random()*spread*.53;p.velocity.z+=(Math.random()-.5)*spread;
   }
  }
  function update(dt){
   for(const group of groups)group.mesh.count=0;
   for(const p of particles){if(p.life<=0)continue;p.life=Math.max(0,p.life-dt);if(p.life===0)continue;
-   p.velocity.y+=(p.smoke?.4:-8)*dt;p.position.addScaledVector(p.velocity,dt);
+   if(p.drag)p.velocity.multiplyScalar(Math.exp(-p.drag*dt));p.velocity.y+=(p.smoke?.4:-8)*dt;p.position.addScaledVector(p.velocity,dt);
    const progress=1-p.life/p.total,size=p.smoke?.35+progress*1.3:1-progress*.6;
-   const {mesh,opacity}=p.group,index=mesh.count++;matrix.compose(p.position,rotation,scale.setScalar(size));mesh.setMatrixAt(index,matrix);mesh.setColorAt(index,p.color);opacity.setX(index,(1-progress)*(p.smoke?.045:1));
+   const {mesh,opacity}=p.group,index=mesh.count++;matrix.compose(p.position,rotation,scale.setScalar(size*p.scale));mesh.setMatrixAt(index,matrix);mesh.setColorAt(index,p.color);opacity.setX(index,(1-progress)*p.alpha);
   }
   for(const {mesh,opacity} of groups){if(!mesh.count)continue;mesh.instanceMatrix.needsUpdate=true;mesh.instanceColor.needsUpdate=true;opacity.needsUpdate=true;}
  }
