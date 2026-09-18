@@ -7,7 +7,7 @@ const woodMaterial=new THREE.MeshStandardMaterial({color:0x62361e,roughness:.72,
 const boreMaterial=new THREE.MeshStandardMaterial({color:0x101110,roughness:1});
 const beadMaterial=new THREE.MeshStandardMaterial({color:0xae9466,roughness:.6});
 // Side outlines hand-traced from the supplied 1912 x 492 reference photo.
-// The barrel is 1.022 units long; the remaining proportions use that scale.
+// Keep the original reference scale; only cut the barrels just past the fore-end.
 const scale=1.022/(1887-920),axisY=135;
 const stockOutline=[[90,270],[97,255],[112,247],[476,203],[515,202],[537,209],[551,225],[704,164],[792,137],[854,126],[879,155],[875,204],[756,232],[674,253],[626,282],[590,319],[565,345],[544,353],[525,350],[507,338],[500,318],[487,344],[404,380],[312,420],[133,490],[96,300]];
 const forendOutline=[[1050,161],[1418,158],[1448,178],[1050,199]];
@@ -25,8 +25,8 @@ const forendGeometry=trace(forendOutline,.073,920);
 const receiverGeometry=trace(actionOutline,.117);
 const hammerGeometry=trace(hammerOutline,.013,864,.0015);
 // Tapered, hollow barrels, with a eight sides and deliberately faceted surface normals.
-const barrelGeometry=new THREE.LatheGeometry([[.016,.93],[.016,1.022],[.022,1.022],[.023,1.014],[.026,.4],[.033,.07],[.033,0]].reverse().map(([r,z])=>new THREE.Vector2(r,z)),8);barrelGeometry.rotateX(-Math.PI/2);
-const ribGeometry=trace([[920,103],[1887,112],[1887,116],[920,107]],.014,920,.0005);
+const barrelGeometry=new THREE.LatheGeometry([[.016,.5],[.016,.58],[.025,.58],[.026,.4],[.033,.07],[.033,0]].reverse().map(([r,z])=>new THREE.Vector2(r,z)),8);barrelGeometry.rotateX(-Math.PI/2);
+const ribGeometry=trace([[920,103],[1469,108],[1469,112],[920,107]],.014,920,.0005);
 function curvedStrip(points,radius){return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(([x,y])=>new THREE.Vector3(0,.025+(axisY-y)*scale,(864-x)*scale))),8,radius,4,false);}
 const guardGeometry=curvedStrip([[785,225],[751,244],[747,270],[767,287],[811,289],[852,278],[871,258],[866,236],[853,221]],.004);
 const triggerGeometry=curvedStrip([[817,224],[813,241],[816,263],[826,279]],.003);
@@ -41,15 +41,15 @@ export function createShotgun(parent,steel,wood,skin,firstPerson=false){
  const barrels=new THREE.Group();barrels.position.z=-.06;gun.add(barrels);
  for(const x of [-SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE)]){
   part(barrelGeometry,steelMaterial,barrels,x,.025);
-  const bore=part(new THREE.CircleGeometry(.016,8),boreMaterial,barrels,x,.025,-.93);bore.rotation.y=Math.PI;
+  const bore=part(new THREE.CircleGeometry(.016,8),boreMaterial,barrels,x,.025,-.5);bore.rotation.y=Math.PI;
  }
  part(trace([[879,117],[911,104],[920,104],[920,165],[882,165],[873,145]],.117,920),steelMaterial,barrels);
  part(ribGeometry,steelMaterial,barrels);part(forendGeometry,woodMaterial,barrels);
- part(new THREE.SphereGeometry(.006,8,6),beadMaterial,barrels,0,.052,-1.005);
+ part(new THREE.SphereGeometry(.006,8,6),beadMaterial,barrels,0,.06,-.563);
  const supportHand=part(new THREE.SphereGeometry(.10,8,6),skin,barrels,-.025,-.117,-.32);
  const flash=new THREE.Group();barrels.add(flash);flash.visible=false;
  const flameMaterial=new THREE.MeshBasicMaterial({color:0xffe4ad,transparent:true,opacity:.8,depthWrite:false});
- for(const x of [-SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE)]){const flame=part(new THREE.ConeGeometry(.045,.2,5),flameMaterial,flash,x,.025,-1.12);flame.rotation.x=-Math.PI/2;}
+ for(const x of [-SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE)]){const flame=part(new THREE.ConeGeometry(.045,.2,5),flameMaterial,flash,x,.025,-.678);flame.rotation.x=-Math.PI/2;}
  // Reload parts stay in child groups so static batching cannot absorb them.
  const handPivot=new THREE.Group();barrels.add(handPivot);handPivot.add(supportHand);
  const shellBody=new THREE.MeshStandardMaterial({color:0x943a27,roughness:.8,flatShading:true}),shellBrass=new THREE.MeshStandardMaterial({color:0xb69344,roughness:.45,metalness:.4,flatShading:true});
@@ -57,7 +57,7 @@ export function createShotgun(parent,steel,wood,skin,firstPerson=false){
  const shells=[shell(),shell()],ejected=[shell(),shell()];
  for(const x of [-SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE)])part(new THREE.CircleGeometry(.018,8),boreMaterial,barrels,x,.025,.002);
  batchMeshes(gun);batchMeshes(barrels);
- gun.userData={type:'shotgun',muzzleZ:-1.022,muzzleObject:barrels,barrels,flash,hammers,supportHand,handTarget:new THREE.Vector3(-.025,-.117,-.32),shells,ejected,lastBarrel:0};
+ gun.userData={type:'shotgun',muzzleZ:-.58,muzzleObject:barrels,barrels,flash,hammers,supportHand,handTarget:new THREE.Vector3(-.025,-.117,-.32),shells,ejected,lastBarrel:0};
  gun.traverse(mesh=>{if(mesh.isMesh){mesh.castShadow=false;mesh.receiveShadow=true;}});
  return gun;
 }
