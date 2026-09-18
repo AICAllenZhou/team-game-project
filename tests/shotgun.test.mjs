@@ -24,5 +24,5 @@ test('shotgun ray uses the longer physical barrels and raised aim retains fixed 
  const hip={};placeWeapon(rig,hip);const hipY=rig.position.y;
  for(const focus of [0,.5,1]){placeWeapon(rig,{shotgun:true,focus,yaw:.3,pitch:.1});assert.ok(Math.abs(rig.position.length()-WEAPON_REACH)<1e-9);}
  placeWeapon(rig,{shotgun:true,focus:1});assert.ok(rig.position.y>hipY);
- const ray=captureBarrelRay(gun),expected=gun.localToWorld(new THREE.Vector3(0,.025,-.822));assert.ok(ray.origin.distanceTo(expected)<1e-9);
+ const ray=captureBarrelRay(gun),expected=gun.localToWorld(new THREE.Vector3(0,.025,-1.082));assert.ok(ray.origin.distanceTo(expected)<1e-9);
 });
