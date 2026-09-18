@@ -241,7 +241,7 @@ function fire(requestFan,now=gameLoop.now(),both=false){
   const {barrel,cost}=shotgunDischarge(local.ammo,both);shotgunGun.userData.lastBarrel=barrel;
   const pellets=shotgunPellets(origin,direction,barrelRight,shotId,barrel).map(ray=>({...ray,...traceShot(ray.origin,ray.direction,online?shotCandidates:practiceCandidates,liveClays)}));
   lastShot=now;lastShotWeapon=weapon;local.ammo-=cost;ammoByWeapon.shotgun=local.ammo;
-  wristSpring.velocity=Math.min(32,wristSpring.velocity+(cost===2?25:20));wristSpring.angle=Math.min(1.25,wristSpring.angle+(cost===2?.16:.12));cameraSpring.velocity=Math.min(3,cameraSpring.velocity+(cost===2?2:1.4));sound();
+  wristSpring.velocity=Math.min(18,wristSpring.velocity+(cost===2?13:9));wristSpring.angle=Math.min(.5,wristSpring.angle+(cost===2?.055:.035));cameraSpring.velocity=Math.min(1.2,cameraSpring.velocity+(cost===2?.55:.35));sound();
   shotExposure.energy=Math.min(2,shotExposure.energy+(cost===2?1.3:.9));for(let i=0;i<pellets.length;i+=12)emitParticles(pellets[i].origin,direction,0xb5aea1,8,true,{speed:5,spread:.65,life:.7,size:1.5,opacity:.16,drag:2.3});
   shotEffect({id:online?id:'local',shotId,weapon,origin,direction,pellets},online);
   if(online)post('fire',{shotId,both,muzzle:origin,direction,barrelRight,gunYaw:Math.atan2(-direction.x,-direction.z),gunPitch:Math.asin(clamp(direction.y,-1,1))}).catch(networkError);
