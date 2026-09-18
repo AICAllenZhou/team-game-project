@@ -48,8 +48,14 @@ export function createShotgun(parent,steel,wood,skin,firstPerson=false){
  part(new THREE.SphereGeometry(.006,8,6),beadMaterial,barrels,0,.06,-.563);
  const supportHand=part(new THREE.SphereGeometry(.10,8,6),skin,barrels,-.025,-.117,-.32);
  const flash=new THREE.Group();barrels.add(flash);flash.visible=false;
- const flameMaterial=new THREE.MeshBasicMaterial({color:0xffe4ad,transparent:true,opacity:.8,depthWrite:false});
- for(const x of [-SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE)]){const flame=part(new THREE.ConeGeometry(.045,.2,5),flameMaterial,flash,x,.025,-.678);flame.rotation.x=-Math.PI/2;}
+ const flameMaterial=new THREE.MeshBasicMaterial({color:0xffb44d,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false});
+ const coreMaterial=new THREE.MeshBasicMaterial({color:0xfff5d5,transparent:true,opacity:1,blending:THREE.AdditiveBlending,depthWrite:false});
+ for(const x of [-SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE)]){
+  const burst=new THREE.Group();burst.position.set(x,.025,-.58);flash.add(burst);
+  const flame=part(new THREE.ConeGeometry(.16,.62,7),flameMaterial,burst,0,0,-.29);flame.rotation.x=-Math.PI/2;
+  const core=part(new THREE.ConeGeometry(.085,.38,6),coreMaterial,burst,0,0,-.17);core.rotation.x=-Math.PI/2;
+  for(let i=0;i<3;i++){const a=i*Math.PI*2/3,jet=part(new THREE.ConeGeometry(.035,.28,5),flameMaterial,burst,Math.cos(a)*.065,Math.sin(a)*.065,-.14);jet.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),new THREE.Vector3(Math.cos(a)*.6,Math.sin(a)*.6,-1).normalize());}
+ }
  // Reload parts stay in child groups so static batching cannot absorb them.
  const handPivot=new THREE.Group();barrels.add(handPivot);handPivot.add(supportHand);
  const shellBody=new THREE.MeshStandardMaterial({color:0x943a27,roughness:.8,flatShading:true}),shellBrass=new THREE.MeshStandardMaterial({color:0xb69344,roughness:.45,metalness:.4,flatShading:true});
@@ -57,7 +63,7 @@ export function createShotgun(parent,steel,wood,skin,firstPerson=false){
  const shells=[shell(),shell()],ejected=[shell(),shell()];
  for(const x of [-SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE),SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE)])part(new THREE.CircleGeometry(.018,8),boreMaterial,barrels,x,.025,.002);
  batchMeshes(gun);batchMeshes(barrels);
- gun.userData={type:'shotgun',muzzleZ:-.58,muzzleObject:barrels,barrels,flash,hammers,supportHand,handTarget:new THREE.Vector3(-.025,-.117,-.32),shells,ejected,lastBarrel:0};
+ gun.userData={type:'shotgun',muzzleZ:-.58,muzzleObject:barrels,barrels,flash,flashMaterials:[flameMaterial,coreMaterial],hammers,supportHand,handTarget:new THREE.Vector3(-.025,-.117,-.32),shells,ejected,lastBarrel:0};
  gun.traverse(mesh=>{if(mesh.isMesh){mesh.castShadow=false;mesh.receiveShadow=true;}});
  return gun;
 }

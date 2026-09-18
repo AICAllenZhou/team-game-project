@@ -241,8 +241,8 @@ function fire(requestFan,now=gameLoop.now(),both=false){
   const {barrel,cost}=shotgunDischarge(local.ammo,both);shotgunGun.userData.lastBarrel=barrel;
   const pellets=shotgunPellets(origin,direction,barrelRight,shotId,barrel).map(ray=>({...ray,...traceShot(ray.origin,ray.direction,online?shotCandidates:practiceCandidates,liveClays)}));
   lastShot=now;lastShotWeapon=weapon;local.ammo-=cost;ammoByWeapon.shotgun=local.ammo;
-  wristSpring.velocity=Math.min(29,wristSpring.velocity+(cost===2?21:17));wristSpring.angle=Math.min(1.1,wristSpring.angle+.13);cameraSpring.velocity=Math.min(2,cameraSpring.velocity+1.3);sound();
-  shotExposure.energy=Math.min(1.2,shotExposure.energy+.5);emitParticles(origin,direction,0xaaa396,2,true);
+  wristSpring.velocity=Math.min(42,wristSpring.velocity+(cost===2?34:27));wristSpring.angle=Math.min(1.25,wristSpring.angle+(cost===2?.22:.17));cameraSpring.velocity=Math.min(4.3,cameraSpring.velocity+(cost===2?3:2.1));sound();
+  shotExposure.energy=Math.min(2,shotExposure.energy+(cost===2?1.3:.9));emitParticles(origin,direction,0xaaa396,2,true);
   shotEffect({id:online?id:'local',shotId,weapon,origin,direction,pellets},online);
   if(online)post('fire',{shotId,both,muzzle:origin,direction,barrelRight,gunYaw:Math.atan2(-direction.x,-direction.z),gunPitch:Math.asin(clamp(direction.y,-1,1))}).catch(networkError);
   return;
@@ -309,12 +309,14 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  animateRevolver(gun,now,dt);
  animateShotgun(shotgunGun,weapon==='shotgun'?local.ammo:ammoByWeapon.shotgun,dt,weapon==='shotgun'&&reloadEnd?1-(reloadEnd-(online?skeetTime():now))/WEAPONS.shotgun.reload:-1,ejectShells);
  shotgunGun.userData.flash.children.forEach((flame,index)=>flame.visible=shotgunGun.userData.lastBarrel===2||index===shotgunGun.userData.lastBarrel);
- shotgunGun.userData.flash.visible=weapon==='shotgun'&&lastShotWeapon==='shotgun'&&now-lastShot<35;
- flashLife=lastShotWeapon===weapon?Math.max(0,.065-(now-lastShot)/1000):0;flash.visible=gapFlash.visible=weapon==='revolver'&&flashLife>0;const flashPower=(flashLife/.065)**1.5;muzzleLight.intensity=(weapon==='shotgun'?42:32)*flashPower;flashOuterMaterial.opacity=.9*flashPower;flashCoreMaterial.opacity=flashPower;barrelHeat*=Math.exp(-1.6*dt);
+ const shotgunFlashDuration=shotgunGun.userData.lastBarrel===2?100:80,shotgunFlashPower=Math.max(0,1-(now-lastShot)/shotgunFlashDuration);
+ shotgunGun.userData.flash.visible=weapon==='shotgun'&&lastShotWeapon==='shotgun'&&shotgunFlashPower>0;
+ for(const material of shotgunGun.userData.flashMaterials)material.opacity=shotgunFlashPower**.55;
+ flashLife=lastShotWeapon===weapon?Math.max(0,.065-(now-lastShot)/1000):0;flash.visible=gapFlash.visible=weapon==='revolver'&&flashLife>0;const flashPower=(flashLife/.065)**1.5;muzzleLight.intensity=weapon==='shotgun'&&lastShotWeapon===weapon?(shotgunGun.userData.lastBarrel===2?120:85)*shotgunFlashPower:32*flashPower;flashOuterMaterial.opacity=.9*flashPower;flashCoreMaterial.opacity=flashPower;barrelHeat*=Math.exp(-1.6*dt);
  // Shots add exposure energy; the screen glow eases up and gently recovers.
  // Keep this separate from the short, physical muzzle flash.
  if(shotExposure.energy>0||shotExposure.visible>0){
- shotExposure.energy*=Math.exp(-1.5*dt);
+ shotExposure.energy*=Math.exp(-(weapon==='shotgun'?1.2:1.5)*dt);
  shotExposure.visible+=(shotExposure.energy-shotExposure.visible)*(1-Math.exp(-(shotExposure.energy>shotExposure.visible?12:4.5)*dt));
  if(shotExposure.energy<.0001&&shotExposure.visible<.0001)shotExposure.energy=shotExposure.visible=0;
  }
@@ -337,7 +339,7 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;
  const liveAim=aimBeam.visible?captureAim():null;
  displayedAim=liveAim?(frozenAim&&now<frozenAim.until?frozenAim:liveAim):null;
- colorShift.uniforms.blast.value=lastShotWeapon===weapon?Math.exp(-Math.max(0,now-lastShot)/32):0;
+ colorShift.uniforms.blast.value=lastShotWeapon===weapon?(weapon==='shotgun'?(shotgunGun.userData.lastBarrel===2?2.2:1.7):1)*Math.exp(-Math.max(0,now-lastShot)/(weapon==='shotgun'?45:32)):0;
  if(colorShift.uniforms.blast.value>.001){const muzzle=liveAim?.origin??captureBarrelRay(gun).origin;muzzleLight.position.copy(muzzle);const muzzleUV=uvScratch.copy(muzzle).project(camera);colorShift.uniforms.muzzleUV.value.set(muzzleUV.x*.5+.5,muzzleUV.y*.5+.5);}
  colorShift.uniforms.heat.value=0;
  if(displayedAim){
