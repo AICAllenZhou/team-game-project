@@ -19,7 +19,7 @@ export function resolveBarrelShot(player,data){
  }
  let origin={x:player.x+direction.x*.76+Math.cos(yaw)*.19,y:player.y+1.27+direction.y*.76,z:player.z+direction.z*.76-Math.sin(yaw)*.19};
  if(data.muzzle){
- if(![data.muzzle.x,data.muzzle.y,data.muzzle.z].every(Number.isFinite)||Math.hypot(data.muzzle.x-player.x,data.muzzle.y-player.y-1.5,data.muzzle.z-player.z)>2)return null;
+ if(![data.muzzle.x,data.muzzle.y,data.muzzle.z].every(Number.isFinite)||Math.hypot(data.muzzle.x-player.x,data.muzzle.y-player.y-1.5,data.muzzle.z-player.z)>(player.weapon==='shotgun'?2.3:2))return null;
  origin={x:data.muzzle.x,y:data.muzzle.y,z:data.muzzle.z};
  }else if(data.muzzleOffset&&[data.muzzleOffset.x,data.muzzleOffset.y,data.muzzleOffset.z].every(Number.isFinite)&&Math.hypot(data.muzzleOffset.x,data.muzzleOffset.y,data.muzzleOffset.z)<=1.4){origin={x:player.x+data.muzzleOffset.x,y:player.y+1.5+data.muzzleOffset.y,z:player.z+data.muzzleOffset.z};}
  return {origin,direction};

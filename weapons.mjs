@@ -1,9 +1,9 @@
-export const WEAPONS={revolver:{capacity:6,cost:1,reload:1800,damage:34},shotgun:{capacity:2,cost:2,reload:2400,damage:9}};
-export const SHOTGUN_SPREAD=2.8*Math.PI/180,SHOTGUN_SEPARATION=.058;
+export const WEAPONS={revolver:{capacity:6,cost:1,reload:1800,damage:34},shotgun:{capacity:2,cost:1,reload:2400,damage:9}};
+export const SHOTGUN_SPREAD=2.8*Math.PI/180,SHOTGUN_MODEL_SCALE=1.25,SHOTGUN_SEPARATION=.058*SHOTGUN_MODEL_SCALE,SHOTGUN_INTERVAL=180;
 
 // The seed keeps prediction and server traces identical. Each barrel emits
 // twelve pellets over an evenly covered cone, not a screen-centered ray.
-export function shotgunPellets(origin,direction,barrelRight,seed=''){
+export function shotgunPellets(origin,direction,barrelRight,seed='',barrel=0){
  let hash=2166136261;for(const char of String(seed)){hash=Math.imul(hash^char.charCodeAt(0),16777619);}
  const random=()=>{hash^=hash<<13;hash^=hash>>>17;hash^=hash<<5;return (hash>>>0)/4294967296;};
  let right=barrelRight;
@@ -14,7 +14,7 @@ export function shotgunPellets(origin,direction,barrelRight,seed=''){
  right={x:x/length,y:y/length,z:z/length};
  const up={x:right.y*direction.z-right.z*direction.y,y:right.z*direction.x-right.x*direction.z,z:right.x*direction.y-right.y*direction.x};
  const pellets=[];
- for(const side of [-1,1]){
+ for(const side of (barrel===2?[-1,1]:[barrel===1?1:-1])){
   const muzzle={x:origin.x+right.x*side*SHOTGUN_SEPARATION/2,y:origin.y+right.y*side*SHOTGUN_SEPARATION/2,z:origin.z+right.z*side*SHOTGUN_SEPARATION/2},rotation=random()*Math.PI*2;
   for(let i=0;i<12;i++){
    const radius=Math.sqrt((i+random())/12)*Math.tan(SHOTGUN_SPREAD),angle=rotation+i*2.3999632297;
@@ -25,3 +25,5 @@ export function shotgunPellets(origin,direction,barrelRight,seed=''){
  }
  return pellets;
 }
+
+export function shotgunDischarge(ammo,both=false){return {barrel:both&&ammo>=2?2:ammo>=2?0:1,cost:Math.min(ammo,both?2:1)};}

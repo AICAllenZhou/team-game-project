@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {move,traceShot,firingMode,resolveBarrelShot} from './simulation.mjs';
 import {createSkeetRange,clayPose} from './skeet.mjs';
-import {WEAPONS,shotgunPellets} from './weapons.mjs';
+import {WEAPONS,shotgunPellets,SHOTGUN_INTERVAL,shotgunDischarge} from './weapons.mjs';
 const rooms=new Map(),sessions=new Map(),skeetRanges=new Map();
 const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0,vx:0,vz:0});
 const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -31,16 +31,17 @@ const server=http.createServer(async(req,res)=>{
   else if(url.pathname==='/api/launch'&&p.hp>0)skeetRanges.get(p.room).launch(now);
   else if(url.pathname==='/api/equip'&&Object.hasOwn(WEAPONS,data.weapon)&&p.hp>0&&!p.reloadUntil){p.ammoByWeapon[p.weapon]=p.ammo;p.weapon=data.weapon;p.ammo=p.ammoByWeapon[p.weapon];}
   else if(url.pathname==='/api/reload'&&p.hp>0&&!p.reloadUntil&&p.ammo<WEAPONS[p.weapon].capacity)p.reloadUntil=now+WEAPONS[p.weapon].reload;
-  else if(url.pathname==='/api/fire'&&p.hp>0&&!p.reloadUntil&&p.ammo>=WEAPONS[p.weapon].cost&&(p.weapon==='shotgun'?now-p.lastShot>=500:firingMode(now,p.lastShot,data.fan).ready)){
+  else if(url.pathname==='/api/fire'&&p.hp>0&&!p.reloadUntil&&p.ammo>=WEAPONS[p.weapon].cost&&(p.weapon==='shotgun'?now-p.lastShot>=SHOTGUN_INTERVAL:firingMode(now,p.lastShot,data.fan).ready)){
    const ray=resolveBarrelShot(p,data);if(!ray){res.writeHead(400).end('Invalid muzzle pose');return;}
    const fan=p.weapon==='revolver'&&firingMode(now,p.lastShot,data.fan).fan;
    // Use the displayed barrel pose at the instant of firing, not a stale input tick.
    if(Number.isFinite(data.gunYaw))p.gunYaw=data.gunYaw;
    if(Number.isFinite(data.gunPitch))p.gunPitch=Math.max(-Math.PI/2,Math.min(Math.PI/2,data.gunPitch));
-   p.lastShot=now;p.ammo-=WEAPONS[p.weapon].cost;p.ammoByWeapon[p.weapon]=p.ammo;const {origin,direction}=ray;
+   const discharge=p.weapon==='shotgun'?shotgunDischarge(p.ammo,data.both===true):{cost:1};
+   p.lastShot=now;p.ammo-=discharge.cost;p.ammoByWeapon[p.weapon]=p.ammo;const {origin,direction}=ray;
    const range=skeetRanges.get(p.room),clays=range.flights.map(f=>clayPose(f,now)).filter(c=>c.y>0);
    const shotId=typeof data.shotId==='string'?data.shotId.slice(0,64):'',players=[...room.values()].filter(other=>other!==p);
-   const rays=p.weapon==='shotgun'?shotgunPellets(origin,direction,data.barrelRight,shotId):[{origin,direction}];
+   const rays=p.weapon==='shotgun'?shotgunPellets(origin,direction,data.barrelRight,shotId,discharge.barrel):[{origin,direction}];
    const results=rays.map(ray=>({...ray,...traceShot(ray.origin,ray.direction,players,clays)}));
    for(const result of results){
     if(result.clayId){const broken=range.breakClay(result.clayId,now,result.direction);if(broken)broadcast(room,'clayBreak',broken);}
