@@ -1,5 +1,10 @@
 export const SHOTGUN_PICKUP={x:3.8,y:.8,z:3.2};
-export function canPickUpShotgun(p){return p.hp>0&&!p.reloadUntil&&Math.hypot(p.x-SHOTGUN_PICKUP.x,p.z-SHOTGUN_PICKUP.z)<=1.5&&Math.abs(p.y)<1.5;}
+export function canPickUpShotgun(p,yaw=p.yaw,pitch=p.pitch){
+ if(p.hp<=0||p.reloadUntil||Math.hypot(p.x-SHOTGUN_PICKUP.x,p.z-SHOTGUN_PICKUP.z)>1.5||Math.abs(p.y)>=1.5||!Number.isFinite(yaw)||!Number.isFinite(pitch))return false;
+ const dx=SHOTGUN_PICKUP.x-.35-p.x,dy=SHOTGUN_PICKUP.y-(p.y+1.5),dz=SHOTGUN_PICKUP.z-p.z;
+ const forward=-dx*Math.sin(yaw)*Math.cos(pitch)+dy*Math.sin(pitch)-dz*Math.cos(yaw)*Math.cos(pitch);
+ return forward>0&&dx*dx+dy*dy+dz*dz-forward*forward<.42*.42;
+}
 export const WEAPONS={revolver:{capacity:6,cost:1,reload:1800,damage:34},shotgun:{capacity:2,cost:1,reload:2400,damage:9}};
 export const SHOTGUN_SPREAD=7.5*Math.PI/180,SHOTGUN_MODEL_SCALE=1.25,SHOTGUN_SEPARATION=.044*SHOTGUN_MODEL_SCALE,SHOTGUN_INTERVAL=180;
 

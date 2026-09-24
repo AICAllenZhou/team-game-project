@@ -47,7 +47,8 @@ test('multiplayer shares room state, isolates rooms, enforces ammo and reload',a
   if(d<1){await post('input',{token:c.token,x:0,z:0,yaw:0});break;}
   await post('input',{token:c.token,x:dx/d,z:dz/d,yaw:0});await new Promise(r=>setTimeout(r,50));
  }
- await post('pickup',{token:c.token});
+ const collector=(await state(c.token)).players.find(p=>p.id===c.id),aimX=SHOTGUN_PICKUP.x-.35-collector.x,aimZ=SHOTGUN_PICKUP.z-collector.z;
+ await post('pickup',{token:c.token,yaw:Math.atan2(-aimX,-aimZ),pitch:Math.atan2(SHOTGUN_PICKUP.y-collector.y-1.5,Math.hypot(aimX,aimZ))});
  await post('equip',{token:c.token,weapon:'shotgun'});let shotgunState=(await state(c.token)).players.find(p=>p.id===c.id);assert.equal(shotgunState.weapon,'shotgun');assert.equal(shotgunState.ammo,2);
  async function shotgunShot(both=false){
   const controller=new AbortController();controllers.push(controller);const timer=setTimeout(()=>controller.abort(),3000);

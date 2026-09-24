@@ -145,9 +145,12 @@ const skeetRange=createSkeetRange(),skeetView=createSkeetView(scene);let serverC
 const pickupStand=new THREE.Group();pickupStand.position.set(SHOTGUN_PICKUP.x,0,SHOTGUN_PICKUP.z);scene.add(pickupStand);
 const stand=new THREE.Mesh(new THREE.BoxGeometry(1.15,.65,.55),new THREE.MeshStandardMaterial({color:0x574333,roughness:1}));stand.position.y=.325;pickupStand.add(stand);
 const pickupGun=createShotgun(pickupStand,null,null,new THREE.MeshStandardMaterial());pickupGun.position.set(-.15,.83,0);pickupGun.rotation.y=Math.PI/2;pickupGun.userData.supportHand.visible=false;
-const pickupCanvas=document.createElement('canvas');pickupCanvas.width=512;pickupCanvas.height=96;const pickupContext=pickupCanvas.getContext('2d');pickupContext.fillStyle='#d8c299';pickupContext.fillRect(0,0,512,96);pickupContext.fillStyle='#262822';pickupContext.font='bold 44px Arial';pickupContext.textAlign='center';pickupContext.fillText('G · PICK UP SHOTGUN',256,62);
-const pickupLabel=new THREE.Mesh(new THREE.PlaneGeometry(1.08,.2),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(pickupCanvas)}));pickupLabel.position.set(0,.4,.281);pickupStand.add(pickupLabel);
-function pickUpShotgun(){if(!gameLoop.running||local.hasShotgun||reloading||!canPickUpShotgun(local))return;if(online)post('pickup').catch(networkError);else{local.hasShotgun=true;equip('shotgun');} }
+let pickupPending=false,pickupRetryAt=0;
+function pickUpShotgun(){
+ if(!gameLoop.running||local.hasShotgun||reloading||pickupPending||gameLoop.now()<pickupRetryAt||!canPickUpShotgun(local,yaw,pitch))return;
+ if(online){pickupPending=true;pickupRetryAt=gameLoop.now()+500;post('pickup',{yaw,pitch}).catch(networkError).finally(()=>{pickupPending=false;});}
+ else{local.hasShotgun=true;equip('shotgun');}
+}
 const clayCandidates=Array.from({length:3},()=>({})),liveClays=[];
 function skeetTime(){return online?serverTime+gameLoop.now()-receivedAt:gameLoop.now();}
 function launchClay(){if(!gameLoop.running||local.hp<=0)return;if(online)post('launch').catch(networkError);else skeetRange.launch(gameLoop.now());}
@@ -232,7 +235,7 @@ document.addEventListener('mousemove',e=>{if(document.pointerLockElement!==$('ga
 window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockElement===$('game')){e.preventDefault();if(weapon==='shotgun'){focusHeld=false;fire(false,gameLoop.now(),true);}else focusHeld=true;}});
 window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;});
 $('game').addEventListener('contextmenu',e=>e.preventDefault());
-window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='KeyR'&&document.pointerLockElement)reload();if(e.code==='KeyG'&&!e.repeat&&document.pointerLockElement)pickUpShotgun();});
+window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='KeyR'&&document.pointerLockElement)reload();});
 window.addEventListener('keydown',e=>{if(e.code==='KeyF'&&!e.repeat){e.preventDefault();launchClay();}});
 window.addEventListener('keydown',e=>{if(!e.repeat&&['Digit1','Digit2'].includes(e.code))equip(e.code==='Digit2'?'shotgun':'revolver');});
 window.addEventListener('keyup',e=>{keys.delete(e.code);});window.addEventListener('blur',()=>{document.exitPointerLock();syncActivity(false);});
@@ -340,7 +343,8 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  if(pelletMesh.count)pelletMesh.instanceMatrix.needsUpdate=true;
  particles.update(dt);shellPhysics.update(dt);
  if(!online)for(const broken of skeetRange.update(now))skeetView.shatter(broken,now);
- pickupGun.visible=pickupLabel.visible=!local.hasShotgun;
+ if(locked)pickUpShotgun();
+ pickupGun.visible=!local.hasShotgun;
  skeetView.update(online?serverClays:skeetRange.flights,skeetTime(),dt,now);
  const aimOpacity=weapon==='revolver'&&locked&&local.hp>0&&!reloadEnd?focusBlend:0;
  aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;

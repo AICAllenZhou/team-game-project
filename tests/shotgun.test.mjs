@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../vendor/three.module.js';
-import {shotgunPellets,SHOTGUN_SPREAD,SHOTGUN_SEPARATION,shotgunDischarge} from '../weapons.mjs';
+import {canPickUpShotgun,SHOTGUN_PICKUP,shotgunPellets,SHOTGUN_SPREAD,SHOTGUN_SEPARATION,shotgunDischarge} from '../weapons.mjs';
 import {createShotgun,animateShotgun} from '../shotgun-view.js';
 import {resolveBarrelShot} from '../simulation.mjs';
 import {captureBarrelRay,placeWeapon,WEAPON_REACH,SHOTGUN_REACH} from '../weapon-pose.js';
@@ -61,4 +61,13 @@ test('reload opens, ejects, inserts each shell and closes without stranded parts
 test('hammer striking tips meet the rear breech behind the barrel axes',()=>{
  const m=new THREE.MeshStandardMaterial(),gun=createShotgun(new THREE.Group(),m,m,m);animateShotgun(gun,0,1);gun.updateMatrixWorld(true);
  for(const hammer of gun.userData.hammers){const tip=hammer.localToWorld(new THREE.Vector3(0,.063,.007)),breech=gun.localToWorld(new THREE.Vector3(hammer.position.x,.025,-.015));assert.ok(tip.distanceTo(breech)<.01);}
+});
+
+test('pickup requires proximity and looking at the shotgun, not merely walking past',()=>{
+ const p={x:SHOTGUN_PICKUP.x-.35,y:0,z:SHOTGUN_PICKUP.z+1,hp:100};
+ assert.equal(canPickUpShotgun(p,0,Math.atan2(-.7,1)),true);
+ assert.equal(canPickUpShotgun(p,Math.PI,0),false);
+ assert.equal(canPickUpShotgun(p,0,.6),false);
+ assert.equal(canPickUpShotgun({...p,z:p.z+3},0,-.2),false);
+ assert.equal(canPickUpShotgun({...p,hp:0},0,Math.atan2(-.7,1)),false);
 });

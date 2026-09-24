@@ -8,10 +8,6 @@ export function createSkeetView(scene){
  box(1,.6,1.1,0x58635a,0,.3,0);
  const shooter=box(.58,.18,1,0x454e49,0,.76,-.12);shooter.rotation.x=.25;
  const button=box(.18,.07,.18,0xc95135,.33,.64,.31);
- // The only instruction lives on the machine, preserving the minimal HUD.
- const canvas=document.createElement('canvas');canvas.width=256;canvas.height=64;
- const ctx=canvas.getContext('2d');ctx.fillStyle='#d8c299';ctx.fillRect(0,0,256,64);ctx.fillStyle='#262822';ctx.font='bold 32px Arial';ctx.textAlign='center';ctx.fillText('F · LAUNCH',128,44);
- const label=new THREE.Mesh(new THREE.PlaneGeometry(.83,.21),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(canvas)}));label.position.set(0,.38,.556);machine.add(label);
  const geometry=new THREE.CylinderGeometry(CLAY_RADIUS,CLAY_RADIUS,CLAY_HALF_HEIGHT*2,12);
  const clays=Array.from({length:MAX_CLAYS},()=>{const mesh=new THREE.Mesh(geometry,orange);mesh.visible=false;scene.add(mesh);return mesh;});
  // Shared triangular prism: real flat fragments, rendered in a single draw.
