@@ -4,11 +4,11 @@ import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
 import {move,traceShot,firingMode,resolveBarrelShot} from './simulation.mjs';
 import {createSkeetRange,clayPose} from './skeet.mjs';
-import {WEAPONS,shotgunPellets,SHOTGUN_INTERVAL,shotgunDischarge} from './weapons.mjs';
+import {canPickUpShotgun,WEAPONS,shotgunPellets,SHOTGUN_INTERVAL,shotgunDischarge} from './weapons.mjs';
 const rooms=new Map(),sessions=new Map(),skeetRanges=new Map();
 const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0,vx:0,vz:0});
 const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-function publicPlayer(p){const {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color}=p;return {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color};}
+function publicPlayer(p){const {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun}=p;return {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun};}
 function broadcast(room,event,data){for(const p of room.values())if(p.stream)send(p.stream,event,data);}
 function remove(p){p.stream?.end();sessions.delete(p.token);const room=rooms.get(p.room);room?.delete(p.id);if(!room?.size){rooms.delete(p.room);skeetRanges.delete(p.room);}}
 const server=http.createServer(async(req,res)=>{
@@ -23,13 +23,14 @@ const server=http.createServer(async(req,res)=>{
    if(sessions.size>=128){res.writeHead(503).end('Server full');return;}
    if(!rooms.has(key)){rooms.set(key,new Map());skeetRanges.set(key,createSkeetRange());}const room=rooms.get(key);
    if(room.size>=12){res.writeHead(409).end('Room full (12 players)');return;}
-   const p={id:randomUUID(),token:randomUUID(),room:key,name:String(data.name||'Drifter').slice(0,16),...spawn(),yaw:0,pitch:0,gunYaw:0,gunPitch:0,hp:100,ammo:6,weapon:'revolver',ammoByWeapon:{revolver:6,shotgun:2},kills:0,deaths:0,reloadUntil:0,deadUntil:0,lastShot:0,lastSeen:Date.now(),input:{},color:[0xc17a47,0x658c91,0x96799c,0x879466][room.size%4]};room.set(p.id,p);sessions.set(p.token,p);
+   const p={id:randomUUID(),token:randomUUID(),room:key,name:String(data.name||'Drifter').slice(0,16),...spawn(),yaw:0,pitch:0,gunYaw:0,gunPitch:0,hp:100,ammo:6,weapon:'revolver',hasShotgun:false,ammoByWeapon:{revolver:6,shotgun:2},kills:0,deaths:0,reloadUntil:0,deadUntil:0,lastShot:0,lastSeen:Date.now(),input:{},color:[0xc17a47,0x658c91,0x96799c,0x879466][room.size%4]};room.set(p.id,p);sessions.set(p.token,p);
    res.setHeader('Content-Type','application/json');res.end(JSON.stringify({token:p.token,id:p.id,room:key}));return;
   }
   const p=sessions.get(data.token);if(!p){res.writeHead(401).end();return;}p.lastSeen=Date.now();const now=Date.now(),room=rooms.get(p.room);
   if(url.pathname==='/api/input'){p.input={x:data.x,z:data.z,yaw:data.yaw,pitch:data.pitch,jump:!!data.jump};p.gunYaw=Number.isFinite(data.gunYaw)?data.gunYaw:p.yaw;p.gunPitch=Math.max(-1.35,Math.min(1.35,Number.isFinite(data.gunPitch)?data.gunPitch:p.pitch));}
   else if(url.pathname==='/api/launch'&&p.hp>0)skeetRanges.get(p.room).launch(now);
-  else if(url.pathname==='/api/equip'&&Object.hasOwn(WEAPONS,data.weapon)&&p.hp>0&&!p.reloadUntil){p.ammoByWeapon[p.weapon]=p.ammo;p.weapon=data.weapon;p.ammo=p.ammoByWeapon[p.weapon];}
+  else if(url.pathname==='/api/pickup'&&!p.hasShotgun&&canPickUpShotgun(p)){p.hasShotgun=true;p.ammoByWeapon[p.weapon]=p.ammo;p.weapon='shotgun';p.ammo=p.ammoByWeapon.shotgun;}
+  else if(url.pathname==='/api/equip'&&Object.hasOwn(WEAPONS,data.weapon)&&(data.weapon!=='shotgun'||p.hasShotgun)&&p.hp>0&&!p.reloadUntil){p.ammoByWeapon[p.weapon]=p.ammo;p.weapon=data.weapon;p.ammo=p.ammoByWeapon[p.weapon];}
   else if(url.pathname==='/api/reload'&&p.hp>0&&!p.reloadUntil&&p.ammo<WEAPONS[p.weapon].capacity)p.reloadUntil=now+WEAPONS[p.weapon].reload;
   else if(url.pathname==='/api/fire'&&p.hp>0&&!p.reloadUntil&&p.ammo>=WEAPONS[p.weapon].cost&&(p.weapon==='shotgun'?now-p.lastShot>=SHOTGUN_INTERVAL:firingMode(now,p.lastShot,data.fan).ready)){
    const ray=resolveBarrelShot(p,data);if(!ray){res.writeHead(400).end('Invalid muzzle pose');return;}

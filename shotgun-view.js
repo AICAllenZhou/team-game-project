@@ -15,12 +15,14 @@ function profile(points,width,bevel=.003){
 }
 // Curved bird's-head grip, narrow wrist and a rounded, faceted heel.
 const stockGeometry=profile([[-.005,.022],[.073,.016],[.14,-.002],[.208,-.032],[.265,-.077],[.302,-.127],[.315,-.18],[.3,-.217],[.27,-.227],[.234,-.21],[.208,-.176],[.181,-.131],[.15,-.097],[.105,-.075],[.036,-.067],[-.008,-.053]],.074,.007);
+stockGeometry.scale(.9,.76,.72);
 const receiverGeometry=profile([[-.066,.055],[-.018,.055],[.016,.033],[.058,.012],[.058,-.045],[.015,-.064],[-.055,-.06],[-.072,-.038]],.077,.003);
 const lockGeometry=profile([[.012,.022],[.075,.009],[.135,-.017],[.15,-.037],[.137,-.054],[.097,-.06],[.032,-.044],[.005,-.025]],.003,.0006);
 const forendGeometry=profile([[-.105,-.008],[-.49,-.008],[-.516,-.02],[-.492,-.038],[-.19,-.058],[-.105,-.041]],.068,.004);
 // Hooked external hammers: forward faces meet the breech on their firing arc.
 const hammerGeometry=profile([[0,0],[.01,.008],[.012,.028],[.017,.052],[.014,.062],[.005,.067],[-.004,.064],[-.005,.056],[.005,.054],[.002,.029],[-.008,.012]],.012,.001);
-const barrelGeometry=new THREE.LatheGeometry([[.016,.5],[.016,.58],[.025,.58],[.026,.4],[.03,.07],[.03,0]].reverse().map(([r,z])=>new THREE.Vector2(r,z)),8);barrelGeometry.rotateX(-Math.PI/2);
+// Closed 360-degree tube: outer wall, muzzle lip, inner wall and rear rim.
+const barrelGeometry=new THREE.LatheGeometry([[.016,0],[.028,0],[.026,.58],[.016,.58],[.016,0]].map(([r,z])=>new THREE.Vector2(r,z)),12,0,Math.PI*2);barrelGeometry.rotateX(-Math.PI/2);
 const ribGeometry=profile([[0,.053],[-.58,.049],[-.58,.055],[0,.06]],.01,.0005);
 function curvedStrip(points,radius){return new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points.map(([z,y])=>new THREE.Vector3(0,y,z))),12,radius,4,false);}
 const guardGeometry=curvedStrip([[.025,-.055],[.007,-.081],[.02,-.121],[.068,-.135],[.118,-.12],[.14,-.095],[.12,-.073]],.0035);

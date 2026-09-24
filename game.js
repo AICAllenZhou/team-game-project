@@ -4,7 +4,7 @@ import {createGameLoop} from './game-loop.js';
 import {batchMeshes,createParticles} from './render-batches.js';
 import {createSkeetRange,clayPose} from './skeet.mjs';
 import {createSkeetView} from './skeet-view.js';
-import {WEAPONS,shotgunPellets,SHOTGUN_INTERVAL,shotgunDischarge,SHOTGUN_SEPARATION,SHOTGUN_MODEL_SCALE} from './weapons.mjs';
+import {SHOTGUN_PICKUP,canPickUpShotgun,WEAPONS,shotgunPellets,SHOTGUN_INTERVAL,shotgunDischarge,SHOTGUN_SEPARATION,SHOTGUN_MODEL_SCALE} from './weapons.mjs';
 import {createShellPhysics} from './shell-physics.js';
 import {createShotgun,animateShotgun} from './shotgun-view.js';
 import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil,captureBarrelRay} from './weapon-pose.js';
@@ -142,6 +142,12 @@ const pendingShots=new Map();let shotSequence=0,barrelHeat=0;
 let displayedAim=null,frozenAim=null,lastClick=-Infinity,queuedFanClick=false;
 const particles=createParticles(scene),emitParticles=particles.emit;
 const skeetRange=createSkeetRange(),skeetView=createSkeetView(scene);let serverClays=[];
+const pickupStand=new THREE.Group();pickupStand.position.set(SHOTGUN_PICKUP.x,0,SHOTGUN_PICKUP.z);scene.add(pickupStand);
+const stand=new THREE.Mesh(new THREE.BoxGeometry(1.15,.65,.55),new THREE.MeshStandardMaterial({color:0x574333,roughness:1}));stand.position.y=.325;pickupStand.add(stand);
+const pickupGun=createShotgun(pickupStand,null,null,new THREE.MeshStandardMaterial());pickupGun.position.set(-.15,.83,0);pickupGun.rotation.y=Math.PI/2;pickupGun.userData.supportHand.visible=false;
+const pickupCanvas=document.createElement('canvas');pickupCanvas.width=512;pickupCanvas.height=96;const pickupContext=pickupCanvas.getContext('2d');pickupContext.fillStyle='#d8c299';pickupContext.fillRect(0,0,512,96);pickupContext.fillStyle='#262822';pickupContext.font='bold 44px Arial';pickupContext.textAlign='center';pickupContext.fillText('G · PICK UP SHOTGUN',256,62);
+const pickupLabel=new THREE.Mesh(new THREE.PlaneGeometry(1.08,.2),new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(pickupCanvas)}));pickupLabel.position.set(0,.4,.281);pickupStand.add(pickupLabel);
+function pickUpShotgun(){if(!gameLoop.running||local.hasShotgun||reloading||!canPickUpShotgun(local))return;if(online)post('pickup').catch(networkError);else{local.hasShotgun=true;equip('shotgun');} }
 const clayCandidates=Array.from({length:3},()=>({})),liveClays=[];
 function skeetTime(){return online?serverTime+gameLoop.now()-receivedAt:gameLoop.now();}
 function launchClay(){if(!gameLoop.running||local.hp<=0)return;if(online)post('launch').catch(networkError);else skeetRange.launch(gameLoop.now());}
@@ -150,7 +156,7 @@ const glowMaterial=new THREE.MeshBasicMaterial({color:0xffb744,transparent:true,
 const pelletMesh=new THREE.InstancedMesh(new THREE.CapsuleGeometry(.017,.28,2,5),new THREE.MeshBasicMaterial({color:0xffffdf}),384),pelletMatrix=new THREE.Matrix4(),pelletRotation=new THREE.Quaternion(),pelletUp=new THREE.Vector3(0,1,0),pelletScale=new THREE.Vector3(1,1,1);pelletMesh.count=0;pelletMesh.frustumCulled=false;pelletMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(pelletMesh);
 const ammoByWeapon={revolver:6,shotgun:2};let lastShotWeapon='revolver';
 function showWeapon(next){if(next===weapon)return;weapon=next;focusHeld=false;gun=weapon==='shotgun'?shotgunGun:revolverGun;revolverGun.visible=weapon==='revolver';shotgunGun.visible=weapon==='shotgun';displayedAim=frozenAim=null;queuedFanClick=false;shotExposure.energy=shotExposure.visible=barrelHeat=0;wristSpring.angle=wristSpring.velocity=0;}
-function equip(next){if(!gameLoop.running||local.reloadUntil||reloading||next===weapon)return;if(online)post('equip',{weapon:next}).catch(networkError);else{ammoByWeapon[weapon]=local.ammo;showWeapon(next);local.ammo=ammoByWeapon[next];}}
+function equip(next){if(!gameLoop.running||local.reloadUntil||reloading||next===weapon||(next==='shotgun'&&!local.hasShotgun))return;if(online)post('equip',{weapon:next}).catch(networkError);else{ammoByWeapon[weapon]=local.ammo;showWeapon(next);local.ammo=ammoByWeapon[next];}}
 let focusHeld=false,focusBlend=0;
 let lookYaw=0,lookPitch=0,handYaw=0,handPitch=0,previousFreeX=0,previousFreeY=0;
 const wristSpring={angle:0,velocity:0};let wristTwist=0,flashLife=0;
@@ -226,7 +232,7 @@ document.addEventListener('mousemove',e=>{if(document.pointerLockElement!==$('ga
 window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockElement===$('game')){e.preventDefault();if(weapon==='shotgun'){focusHeld=false;fire(false,gameLoop.now(),true);}else focusHeld=true;}});
 window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;});
 $('game').addEventListener('contextmenu',e=>e.preventDefault());
-window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='KeyR'&&document.pointerLockElement)reload();});
+window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='KeyR'&&document.pointerLockElement)reload();if(e.code==='KeyG'&&!e.repeat&&document.pointerLockElement)pickUpShotgun();});
 window.addEventListener('keydown',e=>{if(e.code==='KeyF'&&!e.repeat){e.preventDefault();launchClay();}});
 window.addEventListener('keydown',e=>{if(!e.repeat&&['Digit1','Digit2'].includes(e.code))equip(e.code==='Digit2'?'shotgun':'revolver');});
 window.addEventListener('keyup',e=>{keys.delete(e.code);});window.addEventListener('blur',()=>{document.exitPointerLock();syncActivity(false);});
@@ -334,6 +340,7 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  if(pelletMesh.count)pelletMesh.instanceMatrix.needsUpdate=true;
  particles.update(dt);shellPhysics.update(dt);
  if(!online)for(const broken of skeetRange.update(now))skeetView.shatter(broken,now);
+ pickupGun.visible=pickupLabel.visible=!local.hasShotgun;
  skeetView.update(online?serverClays:skeetRange.flights,skeetTime(),dt,now);
  const aimOpacity=weapon==='revolver'&&locked&&local.hp>0&&!reloadEnd?focusBlend:0;
  aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;

@@ -21,3 +21,13 @@ test('shell pool stays bounded and one reload ejects exactly once',()=>{
  animateShotgun(gun,2,.016,-1,eject);animateShotgun(gun,0,.016,.25,eject);assert.equal(count,2);
  animateShotgun(gun,2,.016,-1,eject);animateShotgun(gun,0,.016,.25,eject);physics.update(0);assert.equal(physics.body.count,4);assert.equal(physics.shells.length,4);
 });
+
+test('settled shells expire after fifteen active seconds and slots can be reused',()=>{
+ const physics=createShellPhysics(new THREE.Scene(),2),frame=new THREE.Group();frame.position.y=1;
+ physics.eject(frame,0);for(let i=0;i<14*120;i++)physics.update(1/120);
+ assert.equal(physics.body.count,1);assert.equal(physics.shells[0].awake,false);
+ physics.update(0);assert.equal(physics.body.count,1);
+ for(let i=0;i<121;i++)physics.update(1/120);
+ assert.equal(physics.body.count,0);assert.equal(physics.caps.count,0);
+ physics.eject(frame,0);physics.update(0);assert.equal(physics.body.count,1);
+});

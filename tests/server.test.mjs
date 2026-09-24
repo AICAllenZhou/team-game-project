@@ -1,6 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
+import {SHOTGUN_PICKUP} from '../weapons.mjs';
 import {traceShot} from '../simulation.mjs';
 test('multiplayer shares room state, isolates rooms, enforces ammo and reload',async()=>{
  const child=spawn(process.execPath,['server.mjs'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:'3099'},stdio:['ignore','pipe','pipe']});
@@ -39,6 +40,14 @@ test('multiplayer shares room state, isolates rooms, enforces ammo and reload',a
  const shared=await state(b.token);assert.equal(shared.clays.length,1);assert.ok(shared.clays[0].vz<0);
  assert.equal((await state(c.token)).clays.length,0);
  // Each left click spends one shell; right click spends both loaded shells.
+ await post('equip',{token:c.token,weapon:'shotgun'});assert.equal((await state(c.token)).players.find(p=>p.id===c.id).weapon,'revolver');
+ // Walk to the actual rack: the server rejects inventory bypasses.
+ for(let i=0;i<180;i++){
+  const p=(await state(c.token)).players.find(p=>p.id===c.id),dx=SHOTGUN_PICKUP.x-p.x,dz=SHOTGUN_PICKUP.z-p.z,d=Math.hypot(dx,dz);
+  if(d<1){await post('input',{token:c.token,x:0,z:0,yaw:0});break;}
+  await post('input',{token:c.token,x:dx/d,z:dz/d,yaw:0});await new Promise(r=>setTimeout(r,50));
+ }
+ await post('pickup',{token:c.token});
  await post('equip',{token:c.token,weapon:'shotgun'});let shotgunState=(await state(c.token)).players.find(p=>p.id===c.id);assert.equal(shotgunState.weapon,'shotgun');assert.equal(shotgunState.ammo,2);
  async function shotgunShot(both=false){
   const controller=new AbortController();controllers.push(controller);const timer=setTimeout(()=>controller.abort(),3000);
