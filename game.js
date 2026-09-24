@@ -1,3 +1,5 @@
+import {createVoxelWalls} from './voxel-walls.mjs';
+import {createVoxelWallView} from './voxel-wall-view.js';
 import * as THREE from './vendor/three.module.js';
 import {createWeaponAudio} from './weapon-audio.js';
 import {createGameLoop} from './game-loop.js';
@@ -141,6 +143,8 @@ const keys=new Set(),peers=new Map(),projectiles=[];let audio;
 const pendingShots=new Map();let shotSequence=0,barrelHeat=0;
 let displayedAim=null,frozenAim=null,lastClick=-Infinity,queuedFanClick=false;
 const particles=createParticles(scene),emitParticles=particles.emit;
+const wallWorld=createVoxelWalls(),wallView=createVoxelWallView(scene,wallWorld);
+const wallOld={x:0,z:0};
 const skeetRange=createSkeetRange(),skeetView=createSkeetView(scene);let serverClays=[];
 const pickupStand=new THREE.Group();pickupStand.position.set(SHOTGUN_PICKUP.x,0,SHOTGUN_PICKUP.z);scene.add(pickupStand);
 const stand=new THREE.Mesh(new THREE.BoxGeometry(1.15,.65,.55),new THREE.MeshStandardMaterial({color:0x574333,roughness:1}));stand.position.y=.325;pickupStand.add(stand);
@@ -175,12 +179,13 @@ function captureAim(){const {origin,direction}=captureBarrelRay(gun);
  if(online){shotCandidates.length=0;for(const g of peers.values())if(g.userData.target)shotCandidates.push(g.userData.target);}
  liveClays.length=0;const flights=online?serverClays:skeetRange.flights,now=skeetTime();
  for(let i=0;i<flights.length;i++)liveClays.push(clayPose(flights[i],now,clayCandidates[i]));
- return {origin,direction,result:traceShot(origin,direction,candidates,liveClays)};
+ return {origin,direction,result:traceShot(origin,direction,candidates,liveClays,wallWorld)};
 }
 function sound(){try{audio?.play(weapon==='shotgun'?.82:1);}catch{}}
 async function post(path,data={}){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,...data})});if(!r.ok)throw Error(await r.text()||'Connection lost');return r.status===204?null:r.json();}
 function shotEffect(s,predicted=false){
  if(!gameLoop.running)return;
+ if(!online&&s.wallId!=null){const removed=s.removed||wallWorld.damage(s);wallView.burst(s.wallId,removed);}
  if(s.pellets){s.pellets.forEach((pellet,i)=>shotEffect({...pellet,id:s.id,shotId:`${s.shotId}/${i}`,weapon:'shotgun'},predicted));return;}
  if(s.weapon!=='shotgun'&&s.id!==id&&peers.has(s.id))cockRevolver(peers.get(s.id).userData.revolver,gameLoop.now(),s.fan);
  const existing=s.id===id&&s.shotId?pendingShots.get(s.shotId):null;
@@ -194,6 +199,7 @@ function shotEffect(s,predicted=false){
 function impactEffect(result,now){
  if(result.clayId){if(!online){const broken=skeetRange.breakClay(result.clayId,now,result.direction);if(broken)skeetView.shatter(broken,now);}return;}
  if(result.targetId&&targets.has(result.targetId))targets.get(result.targetId).hitAt=(now-started)/1000;
+ if(result.surface==='voxel'){emitParticles(new THREE.Vector3(result.point.x,result.point.y,result.point.z),new THREE.Vector3(result.normal.x,result.normal.y,result.normal.z),0xb29c7e,2,true);return;}
  if(result.weapon==='shotgun')return;
  if(!result.surface)return;
  const normal=new THREE.Vector3(result.normal.x,result.normal.y,result.normal.z),point=new THREE.Vector3(result.point.x,result.point.y,result.point.z).addScaledVector(normal,.03);
@@ -222,7 +228,7 @@ $('play').onclick=async()=>{
  if(!token){joining=true;$('play').disabled=true;try{
  const r=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Drifter',room:'frontier'})});
  if(r.status===404||r.status===405){online=false;}
- else {if(!r.ok)throw Error(await r.text());const data=await r.json();token=data.token;id=data.id;online=true;events=new EventSource('/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>{const state=JSON.parse(e.data);if(gameLoop.running)applyState(state);else pendingState=state;});events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));events.addEventListener('clayBreak',e=>{const broken=JSON.parse(e.data);serverClays=serverClays.filter(f=>f.id!==broken.id);if(gameLoop.running)skeetView.shatter(broken,gameLoop.now());});dummies.forEach(g=>g.visible=false);}
+ else {if(!r.ok)throw Error(await r.text());const data=await r.json();token=data.token;id=data.id;online=true;events=new EventSource('/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>{const state=JSON.parse(e.data);if(gameLoop.running)applyState(state);else pendingState=state;});events.addEventListener('wallState',e=>JSON.parse(e.data).forEach((removed,i)=>wallWorld.apply(i,removed)));events.addEventListener('wallDamage',e=>{const d=JSON.parse(e.data);wallWorld.apply(d.wallId,d.removed);if(gameLoop.running)wallView.burst(d.wallId,d.removed);});events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));events.addEventListener('clayBreak',e=>{const broken=JSON.parse(e.data);serverClays=serverClays.filter(f=>f.id!==broken.id);if(gameLoop.running)skeetView.shatter(broken,gameLoop.now());});dummies.forEach(g=>g.visible=false);}
  }catch(e){joinError('Could not join: '+e.message);joining=false;$('play').disabled=false;return;}joining=false;$('play').disabled=false;}
  try{try{await $('game').requestPointerLock({unadjustedMovement:true});}catch(e){if(e.name!=='NotSupportedError')throw e;await $('game').requestPointerLock();}}catch{joinError('Click Join again to capture the mouse.');syncActivity(false);}
 };
@@ -248,7 +254,7 @@ function fire(requestFan,now=gameLoop.now(),both=false){
   if(local.ammo<1||now-lastShot<SHOTGUN_INTERVAL||Math.abs(shotgunGun.userData.barrels.rotation.x)>.025)return;
   const aim=captureAim(),{origin,direction}=aim,barrelRight=new THREE.Vector3(1,0,0).transformDirection(gun.matrixWorld),shotId=String(++shotSequence);
   const {barrel,cost}=shotgunDischarge(local.ammo,both);shotgunGun.userData.lastBarrel=barrel;
-  const pellets=shotgunPellets(origin,direction,barrelRight,shotId,barrel).map(ray=>({...ray,...traceShot(ray.origin,ray.direction,online?shotCandidates:practiceCandidates,liveClays)}));
+  const pellets=shotgunPellets(origin,direction,barrelRight,shotId,barrel).map(ray=>{const result={...ray,...traceShot(ray.origin,ray.direction,online?shotCandidates:practiceCandidates,liveClays,wallWorld)};if(!online&&result.wallId!=null)result.removed=wallWorld.damage(result);return result;});
   lastShot=now;lastShotWeapon=weapon;local.ammo-=cost;ammoByWeapon.shotgun=local.ammo;
   wristSpring.velocity=Math.min(18,wristSpring.velocity+(cost===2?13:9));wristSpring.angle=Math.min(.5,wristSpring.angle+(cost===2?.055:.035));cameraSpring.velocity=Math.min(1.2,cameraSpring.velocity+(cost===2?.55:.35));sound();
   shotExposure.energy=Math.min(2,shotExposure.energy+(cost===2?1.3:.9));for(let i=0;i<pellets.length;i+=12)emitParticles(pellets[i].origin,direction,0xb5aea1,8,true,{speed:5,spread:.65,life:.7,size:1.5,opacity:.16,drag:2.3});
@@ -305,8 +311,10 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  const focusLimitX=.28+.28*focusBlend,focusLimitY=.2+.18*focusBlend;
  freeX+=(clamp(freeX,-focusLimitX,focusLimitX)-freeX)*(1-Math.exp(-12*dt));
  freeY+=(clamp(freeY,-focusLimitY,focusLimitY)-freeY)*(1-Math.exp(-12*dt));
+ const wallPlayer=online&&predictionReady?predicted:local;wallOld.x=wallPlayer.x;wallOld.z=wallPlayer.z;
  if(online&&predictionReady){move(predicted,{x:locked&&local.hp>0?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:locked&&local.hp>0?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,jump:locked&&local.hp>0&&keys.has('Space')},dt);settlePrediction(predicted,correction,dt);}
  if(!online)move(local,{x:locked?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:locked?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,jump:locked&&keys.has('Space')},dt);
+ wallWorld.collide(wallPlayer,wallOld);
  if(reloading&&now>=reloading){reloading=0;local.ammo=WEAPONS[weapon].capacity;ammoByWeapon[weapon]=local.ammo;}
  const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k)),lean=locked?(Number(keys.has('KeyE'))-Number(keys.has('KeyQ'))):0;
  walkBlend+=(Number(moving)-walkBlend)*(1-Math.exp(-10*dt));walkPhase+=dt*9*walkBlend;const bob=Math.sin(walkPhase)*.025*walkBlend;
@@ -344,7 +352,7 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  particles.update(dt);shellPhysics.update(dt);
  if(!online)for(const broken of skeetRange.update(now))skeetView.shatter(broken,now);
  if(locked)pickUpShotgun();
- pickupGun.visible=!local.hasShotgun;
+ pickupGun.visible=!local.hasShotgun;wallView.update(dt);
  skeetView.update(online?serverClays:skeetRange.flights,skeetTime(),dt,now);
  const aimOpacity=weapon==='revolver'&&locked&&local.hp>0&&!reloadEnd?focusBlend:0;
  aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;

@@ -64,13 +64,15 @@ function boxHit(origin,direction,box){
 
 // Shared by multiplayer and practice so bullets and markers stop at the same
 // actual surface, including the base plate, fences and target stands.
-export function traceShot(origin,direction,players=[],clays=[]){
+export function traceShot(origin,direction,players=[],clays=[],walls=null){
  let distance=70,hit=null,targetId=null,clayId=null,surface=null,normal=null;
  for(const box of arenaBoxes){const result=boxHit(origin,direction,box);if(result&&result.distance<distance){distance=result.distance;normal=result.normal;surface='world';}}
  for(const target of TRAINING_TARGETS){const d=targetHit(origin,direction,target);if(d<distance){distance=d;targetId=target.id;surface='target';normal={x:(origin.x+direction.x*d-target.x)/target.radius,y:(origin.y+direction.y*d-target.y)/target.radius,z:(origin.z+direction.z*d-target.z)/target.radius};}}
  for(const player of players){if(player.hp<=0)continue;const d=rayHit(origin,direction,player);if(d<distance){distance=d;hit=player.id;targetId=null;surface='player';normal={x:-direction.x,y:-direction.y,z:-direction.z};}}
  for(const clay of clays){const d=clayHit(origin,direction,clay);if(d<distance){distance=d;hit=targetId=null;clayId=clay.id;surface='clay';normal={x:-direction.x,y:-direction.y,z:-direction.z};}}
- return {distance,hit,targetId,clayId,surface,normal,point:{x:origin.x+direction.x*distance,y:origin.y+direction.y*distance,z:origin.z+direction.z*distance}};
+ const voxel=walls?.trace(origin,direction,distance);
+ if(voxel){distance=voxel.distance;hit=targetId=clayId=null;surface='voxel';normal=voxel.normal;}
+ return {...(voxel?{wallId:voxel.wallId,cell:voxel.cell}:{}),distance,hit,targetId,clayId,surface,normal,point:{x:origin.x+direction.x*distance,y:origin.y+direction.y*distance,z:origin.z+direction.z*distance}};
 }
 export function move(p,input,dt){
  const x=Math.max(-1,Math.min(1,Number(input.x)||0)),z=Math.max(-1,Math.min(1,Number(input.z)||0));

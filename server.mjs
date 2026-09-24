@@ -1,3 +1,4 @@
+import {createVoxelWalls} from './voxel-walls.mjs';
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
@@ -5,12 +6,12 @@ import {randomUUID} from 'node:crypto';
 import {move,traceShot,firingMode,resolveBarrelShot} from './simulation.mjs';
 import {createSkeetRange,clayPose} from './skeet.mjs';
 import {canPickUpShotgun,WEAPONS,shotgunPellets,SHOTGUN_INTERVAL,shotgunDischarge} from './weapons.mjs';
-const rooms=new Map(),sessions=new Map(),skeetRanges=new Map();
+const rooms=new Map(),sessions=new Map(),skeetRanges=new Map(),wallWorlds=new Map();
 const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0,vx:0,vz:0});
 const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 function publicPlayer(p){const {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun}=p;return {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun};}
 function broadcast(room,event,data){for(const p of room.values())if(p.stream)send(p.stream,event,data);}
-function remove(p){p.stream?.end();sessions.delete(p.token);const room=rooms.get(p.room);room?.delete(p.id);if(!room?.size){rooms.delete(p.room);skeetRanges.delete(p.room);}}
+function remove(p){p.stream?.end();sessions.delete(p.token);const room=rooms.get(p.room);room?.delete(p.id);if(!room?.size){rooms.delete(p.room);skeetRanges.delete(p.room);wallWorlds.delete(p.room);}}
 const server=http.createServer(async(req,res)=>{
  try{
  const url=new URL(req.url,'http://localhost');
@@ -21,7 +22,7 @@ const server=http.createServer(async(req,res)=>{
   if(url.pathname==='/api/join'){
    const key=String(data.room||'frontier').replace(/[^a-z0-9-]/gi,'').slice(0,24).toLowerCase()||'frontier';
    if(sessions.size>=128){res.writeHead(503).end('Server full');return;}
-   if(!rooms.has(key)){rooms.set(key,new Map());skeetRanges.set(key,createSkeetRange());}const room=rooms.get(key);
+   if(!rooms.has(key)){rooms.set(key,new Map());skeetRanges.set(key,createSkeetRange());wallWorlds.set(key,createVoxelWalls());}const room=rooms.get(key);
    if(room.size>=12){res.writeHead(409).end('Room full (12 players)');return;}
    const p={id:randomUUID(),token:randomUUID(),room:key,name:String(data.name||'Drifter').slice(0,16),...spawn(),yaw:0,pitch:0,gunYaw:0,gunPitch:0,hp:100,ammo:6,weapon:'revolver',hasShotgun:false,ammoByWeapon:{revolver:6,shotgun:2},kills:0,deaths:0,reloadUntil:0,deadUntil:0,lastShot:0,lastSeen:Date.now(),input:{},color:[0xc17a47,0x658c91,0x96799c,0x879466][room.size%4]};room.set(p.id,p);sessions.set(p.token,p);
    res.setHeader('Content-Type','application/json');res.end(JSON.stringify({token:p.token,id:p.id,room:key}));return;
@@ -43,7 +44,8 @@ const server=http.createServer(async(req,res)=>{
    const range=skeetRanges.get(p.room),clays=range.flights.map(f=>clayPose(f,now)).filter(c=>c.y>0);
    const shotId=typeof data.shotId==='string'?data.shotId.slice(0,64):'',players=[...room.values()].filter(other=>other!==p);
    const rays=p.weapon==='shotgun'?shotgunPellets(origin,direction,data.barrelRight,shotId,discharge.barrel):[{origin,direction}];
-   const results=rays.map(ray=>({...ray,...traceShot(ray.origin,ray.direction,players,clays)}));
+   const walls=wallWorlds.get(p.room);
+   const results=rays.map(ray=>{const result={...ray,...traceShot(ray.origin,ray.direction,players,clays,walls)};if(result.wallId!=null){const removed=walls.damage(result);if(removed.length)broadcast(room,'wallDamage',{wallId:result.wallId,removed});}return result;});
    for(const result of results){
     if(result.clayId){const broken=range.breakClay(result.clayId,now,result.direction);if(broken)broadcast(room,'clayBreak',broken);}
     const victim=result.hit?room.get(result.hit):null;
@@ -55,10 +57,10 @@ const server=http.createServer(async(req,res)=>{
  }
  if(req.method==='GET'&&url.pathname==='/api/events'){
   const p=sessions.get(url.searchParams.get('token'));if(!p){res.writeHead(401).end();return;}
-  p.stream?.end();res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive'});res.write(': connected\n\n');p.stream=res;
+  p.stream?.end();res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache','Connection':'keep-alive'});res.write(': connected\n\n');p.stream=res;send(res,'wallState',wallWorlds.get(p.room).snapshot());
   req.on('close',()=>{if(p.stream===res)p.stream=null;});return;
  }
- const files={'/':'index.html','/index.html':'index.html','/game.js':'game.js','/game-loop.js':'game-loop.js','/render-batches.js':'render-batches.js','/weapon-pose.js':'weapon-pose.js','/weapon-audio.js':'weapon-audio.js','/simulation.mjs':'simulation.mjs','/skeet.mjs':'skeet.mjs','/skeet-view.js':'skeet-view.js','/weapons.mjs':'weapons.mjs','/shotgun-view.js':'shotgun-view.js','/shell-physics.js':'shell-physics.js','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
+ const files={'/voxel-walls.mjs':'voxel-walls.mjs','/voxel-wall-view.js':'voxel-wall-view.js','/':'index.html','/index.html':'index.html','/game.js':'game.js','/game-loop.js':'game-loop.js','/render-batches.js':'render-batches.js','/weapon-pose.js':'weapon-pose.js','/weapon-audio.js':'weapon-audio.js','/simulation.mjs':'simulation.mjs','/skeet.mjs':'skeet.mjs','/skeet-view.js':'skeet-view.js','/weapons.mjs':'weapons.mjs','/shotgun-view.js':'shotgun-view.js','/shell-physics.js':'shell-physics.js','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
  for(const i of [1,2,3])files['/assets/audio/revolver-'+i+'.wav']='assets/audio/revolver-'+i+'.wav';
  const file=files[url.pathname];if(!file||req.method!=='GET'){res.writeHead(404).end('Not found');return;}
  res.setHeader('Cache-Control','no-store');
@@ -71,7 +73,7 @@ setInterval(()=>{const now=Date.now();for(const [key,room] of rooms){
  if(now-p.lastSeen>15000){remove(p);continue;}
  if(p.deadUntil&&now>=p.deadUntil){Object.assign(p,spawn(),{hp:100,ammo:WEAPONS[p.weapon].capacity,ammoByWeapon:{revolver:6,shotgun:2},deadUntil:0,reloadUntil:0});}
  if(p.reloadUntil&&now>=p.reloadUntil){p.ammo=WEAPONS[p.weapon].capacity;p.ammoByWeapon[p.weapon]=p.ammo;p.reloadUntil=0;}
- if(p.hp>0)move(p,p.input,.05);
+ if(p.hp>0){const old={x:p.x,z:p.z};move(p,p.input,.05);wallWorlds.get(key).collide(p,old);}
  }broadcast(room,'state',{time:now,players:[...room.values()].map(publicPlayer),clays:range.flights});
 }},50);
 server.listen(Number(process.env.PORT)||3000,'0.0.0.0',()=>console.log(`DUSTLINE ready at http://localhost:${server.address().port}`));
