@@ -98,3 +98,15 @@ export function rayHit(origin,direction,target){
  for(const cy of [.42,1.38]){const dy=oy-cy,b=ox*direction.x+dy*direction.y+oz*direction.z,c=ox*ox+dy*dy+oz*oz-.42**2,d=b*b-c;if(d>=0){const t=-b-Math.sqrt(d);if(t>0)best=Math.min(best,t);}}
  return best;
 }
+
+// Resolve each penetration step against the freshly carved world, sharing the
+// same origin so players and other foreground objects still stop the shot.
+export function destructiveShot(origin,direction,players,clays,walls,profile){
+ const wallChanges=[];let result;
+ for(let i=0;i<profile.penetration;i++){
+  result=traceShot(origin,direction,players,clays,walls);
+  if(result.wallId==null)break;
+  const removed=walls.damage(result,profile.chip);wallChanges.push({wallId:result.wallId,removed});
+ }
+ return {...result,wallChanges};
+}

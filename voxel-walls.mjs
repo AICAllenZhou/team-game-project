@@ -16,11 +16,11 @@ export function createVoxelWalls(){
    }
   });return best;
  }
- function damage(hit){
+ function damage(hit,radius=1){
   if(hit.wallId==null||!hit.cell)return [];const w=walls[hit.wallId],[cx,cy,cz]=hit.cell,removed=[];
   // A small spherical chip, not a full-depth deletion: repeated hits tunnel through.
-  for(let y=cy-1;y<=cy+1;y++)for(let z=cz-1;z<=cz+1;z++)for(let x=cx-1;x<=cx+1;x++){
-   if(x<0||x>=w.nx||y<0||y>=w.ny||z<0||z>=w.nz||(x-cx)**2+(y-cy)**2+(z-cz)**2>1)continue;
+  for(let y=cy-radius;y<=cy+radius;y++)for(let z=cz-radius;z<=cz+radius;z++)for(let x=cx-radius;x<=cx+radius;x++){
+   if(x<0||x>=w.nx||y<0||y>=w.ny||z<0||z>=w.nz||(x-cx)**2+(y-cy)**2+(z-cz)**2>radius*radius)continue;
    const i=index(w,x,y,z);if(w.cells[i]){w.cells[i]=0;removed.push(i);}
   }if(removed.length)revision++;return removed;
  }
@@ -31,5 +31,6 @@ export function createVoxelWalls(){
    for(let y=lo.y;y<=hi.y;y++)for(let z=lo.z;z<=hi.z;z++)for(let x=lo.x;x<=hi.x;x++)if(w.cells[index(w,x,y,z)]){p.x=old.x;p.z=old.z;p.vx=p.vz=0;return;}
   }
  }
- return {walls,trace,damage,apply,snapshot,collide,get revision(){return revision;}};
+ function reset(){for(const w of walls)w.cells.fill(1);revision++;}
+ return {walls,trace,damage,apply,snapshot,collide,reset,get revision(){return revision;}};
 }
