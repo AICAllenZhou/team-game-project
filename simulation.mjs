@@ -99,14 +99,19 @@ export function rayHit(origin,direction,target){
  return best;
 }
 
-// Resolve each penetration step against the freshly carved world, sharing the
-// same origin so players and other foreground objects still stop the shot.
+// Cut the exact bullet path first; widen it afterwards so side damage cannot
+// skip solid cells and accidentally multiply the penetration budget.
 export function destructiveShot(origin,direction,players,clays,walls,profile){
- const wallChanges=[];let result;
+ const wallChanges=[],impacts=[];let result;
  for(let i=0;i<profile.penetration;i++){
   result=traceShot(origin,direction,players,clays,walls);
   if(result.wallId==null)break;
-  const removed=walls.damage(result,profile.chip);wallChanges.push({wallId:result.wallId,removed});
+  impacts.push(result);wallChanges.push({wallId:result.wallId,removed:walls.damage(result,0)});
+ }
+ if(impacts.length===profile.penetration){const beyond=traceShot(origin,direction,players,clays,walls);if(beyond.wallId==null)result=beyond;}
+ for(let i=0;i<impacts.length;i++){
+  const impact=impacts[i],edge=i===0||i===impacts.length-1,radius=edge?profile.chip:(profile.core??0);
+  const removed=walls.damage(impact,radius,direction);if(removed.length)wallChanges.push({wallId:impact.wallId,removed});
  }
  return {...result,wallChanges};
 }

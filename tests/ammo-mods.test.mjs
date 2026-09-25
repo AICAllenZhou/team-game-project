@@ -4,10 +4,20 @@ import {AMMO_MODS,ammoProfile,shotgunPellets} from '../weapons.mjs';
 import {createVoxelWalls} from '../voxel-walls.mjs';
 import {destructiveShot} from '../simulation.mjs';
 const o={x:12,y:1.47,z:-4.53},d={x:1,y:0,z:0};
-test('standard revolver penetrates exactly three blocks and reset restores them',()=>{
- const w=createVoxelWalls();const hit=destructiveShot(o,d,[],[],w,AMMO_MODS.revolver.standard);
- assert.equal(hit.wallChanges.length,3);assert.equal(hit.wallChanges.flatMap(c=>c.removed).length,3);
- assert.ok(w.trace(o,d).distance>3.4);w.reset();assert.equal(w.trace(o,d).distance,3);assert.ok(w.snapshot().every(a=>a.length===0));
+test('revolver cuts a wider through-hole than small ammo, with surrounding edge damage',()=>{
+ const standard=createVoxelWalls(),small=createVoxelWalls();
+ const largeHit=destructiveShot(o,d,[],[],standard,AMMO_MODS.revolver.standard),smallHit=destructiveShot(o,d,[],[],small,AMMO_MODS.revolver.small);
+ assert.equal(standard.trace(o,d),null);assert.equal(small.trace(o,d),null);
+ assert.ok(largeHit.wallChanges.flatMap(c=>c.removed).length>smallHit.wallChanges.flatMap(c=>c.removed).length);
+ assert.equal(small.trace({...o,y:o.y+.14},d).wallId,0);
+ standard.reset();assert.equal(standard.trace(o,d).distance,3);
+});
+test('side damage cannot bypass the central penetration budget',()=>{
+ const w=createVoxelWalls(),hit=destructiveShot(o,d,[],[],w,{penetration:2,core:1,chip:3});
+ assert.ok(w.trace(o,d));assert.ok(Math.abs(w.trace(o,d).distance-3.28)<1e-8);assert.equal(hit.surface,'voxel');
+});
+test('spread is 10 degrees buckshot, 15 birdshot and 4 slug in total',()=>{
+ assert.equal(AMMO_MODS.shotgun.standard.spread*2,10);assert.equal(AMMO_MODS.shotgun.birdshot.spread*2,15);assert.equal(AMMO_MODS.shotgun.slug.spread*2,4);
 });
 test('small rounds have eight shots, smaller projectiles and less recoil',()=>{
  const p=ammoProfile('revolver',{revolver:'small'});assert.equal(p.capacity,8);assert.ok(p.recoil<1&&p.size<1);assert.equal(ammoProfile('revolver',{revolver:'invalid'}).capacity,6);

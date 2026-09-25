@@ -16,11 +16,13 @@ export function createVoxelWalls(){
    }
   });return best;
  }
- function damage(hit,radius=1){
+ function damage(hit,radius=1,direction=null){
   if(hit.wallId==null||!hit.cell)return [];const w=walls[hit.wallId],[cx,cy,cz]=hit.cell,removed=[];
   // A small spherical chip, not a full-depth deletion: repeated hits tunnel through.
   for(let y=cy-radius;y<=cy+radius;y++)for(let z=cz-radius;z<=cz+radius;z++)for(let x=cx-radius;x<=cx+radius;x++){
    if(x<0||x>=w.nx||y<0||y>=w.ny||z<0||z>=w.nz||(x-cx)**2+(y-cy)**2+(z-cz)**2>radius*radius)continue;
+   // Side chipping cannot silently spend extra forward penetration.
+   if(direction&&Math.abs((x-cx)*direction.x+(y-cy)*direction.y+(z-cz)*direction.z)>.55)continue;
    const i=index(w,x,y,z);if(w.cells[i]){w.cells[i]=0;removed.push(i);}
   }if(removed.length){revision++;w.version++;}return removed;
  }

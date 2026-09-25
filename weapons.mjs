@@ -6,9 +6,9 @@ export function canPickUpShotgun(p,yaw=p.yaw,pitch=p.pitch){
  return forward>0&&dx*dx+dy*dy+dz*dz-forward*forward<.42*.42;
 }
 export const WEAPONS={revolver:{capacity:6,cost:1,reload:1800,damage:34},shotgun:{capacity:2,cost:1,reload:2400,damage:9}};
-export const AMMO_MODS={revolver:{standard:{label:'Standard',capacity:6,pellets:1,spread:0,damage:34,recoil:1,size:1,penetration:3,chip:0},small:{label:'Small bullets · 8 rounds',capacity:8,pellets:1,spread:0,damage:23,recoil:.55,size:.65,penetration:1,chip:0}},shotgun:{standard:{label:'Buckshot',capacity:2,pellets:12,spread:7.5,damage:9,recoil:1,size:1,penetration:1,chip:1},birdshot:{label:'Birdshot · 80 pellets per barrel',capacity:2,pellets:80,spread:10,damage:2,recoil:.85,size:.65,penetration:1,chip:1},slug:{label:'Slug · accurate, heavy impact',capacity:2,pellets:1,spread:.6,damage:85,recoil:1.35,size:1.6,penetration:3,chip:3}}};
+export const AMMO_MODS={revolver:{standard:{label:'Standard',capacity:6,pellets:1,spread:0,damage:34,recoil:1,size:1,penetration:6,core:1,chip:2},small:{label:'Small bullets · 8 rounds',capacity:8,pellets:1,spread:0,damage:23,recoil:.55,size:.65,penetration:4,core:0,chip:1}},shotgun:{standard:{label:'Buckshot',capacity:2,pellets:12,spread:5,damage:9,recoil:1,size:1,penetration:1,chip:1},birdshot:{label:'Birdshot · 80 pellets per barrel',capacity:2,pellets:80,spread:7.5,damage:2,recoil:.85,size:.65,penetration:1,chip:1},slug:{label:'Slug · accurate, heavy impact',capacity:2,pellets:1,spread:2,damage:85,recoil:1.35,size:1.6,penetration:6,core:2,chip:3}}};
 export function ammoProfile(weapon,mods={}){return AMMO_MODS[weapon][mods?.[weapon]]||AMMO_MODS[weapon].standard;}
-export const SHOTGUN_SPREAD=7.5*Math.PI/180,SHOTGUN_MODEL_SCALE=1.25,SHOTGUN_SEPARATION=.044*SHOTGUN_MODEL_SCALE,SHOTGUN_INTERVAL=180;
+export const SHOTGUN_SPREAD=5*Math.PI/180,SHOTGUN_MODEL_SCALE=1.25,SHOTGUN_SEPARATION=.044*SHOTGUN_MODEL_SCALE,SHOTGUN_INTERVAL=180;
 
 // The seed keeps prediction and server traces identical. Each barrel emits
 // twelve pellets over an evenly covered cone, not a screen-centered ray.
