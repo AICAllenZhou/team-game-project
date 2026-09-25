@@ -338,7 +338,7 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k)),lean=locked?(Number(keys.has('KeyE'))-Number(keys.has('KeyQ'))):0;
  walkBlend+=(Number(moving)-walkBlend)*(1-Math.exp(-10*dt));walkPhase+=dt*9*walkBlend;const bob=Math.sin(walkPhase)*.025*walkBlend;
  gunYaw=yaw+handYaw;gunPitch=pitch+handPitch;
- const view=online&&predictionReady?predicted:local;smoothPosition.lerp(positionScratch.set(view.x,view.y+1.5,view.z),1-Math.exp(-35*dt));camera.position.copy(smoothPosition);stepRecoil(wristSpring,dt);stepRecoil(cameraSpring,dt);wristTwist*=Math.exp(-10*dt);camera.rotation.set(pitch+cameraSpring.angle,yaw,0,'YXZ');
+ const view=online&&predictionReady?predicted:local;smoothPosition.lerp(positionScratch.set(view.x,view.y+1.5,view.z),1-Math.exp(-35*dt));camera.position.copy(smoothPosition);const aimRecovery=weapon==='revolver'&&focusHeld&&locked?focusBlend:0;stepRecoil(wristSpring,dt,aimRecovery);stepRecoil(cameraSpring,dt,aimRecovery);wristTwist*=Math.exp(-(10+14*aimRecovery)*dt);camera.rotation.set(pitch+cameraSpring.angle,yaw,0,'YXZ');
  const reloadEnd=online?local.reloadUntil:reloading;
  placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd,shotgun:weapon==='shotgun'});
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');

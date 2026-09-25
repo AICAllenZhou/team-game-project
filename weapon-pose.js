@@ -37,10 +37,11 @@ export function followAim(state,dt){
   state.previousFreeX=state.freeX;state.previousFreeY=state.freeY;
 }
 
-export function stepRecoil(s,dt){
+export function stepRecoil(s,dt,aimRecovery=0){
+  const recovery=Math.max(0,Math.min(1,aimRecovery)),spring=155+265*recovery,damping=16+18*recovery;
   // Substeps keep the wrist spring stable on both slow and fast displays.
   const steps=Math.max(1,Math.ceil(dt*120)),h=dt/steps;
-  for(let i=0;i<steps;i++){s.velocity+=(-155*s.angle-16*s.velocity)*h;s.angle+=s.velocity*h;}
+  for(let i=0;i<steps;i++){s.velocity+=(-spring*s.angle-damping*s.velocity)*h;s.angle+=s.velocity*h;}
 }
 
 export function kickRecoil(s,fan=false){const multiplier=fan?1.12:1;s.velocity=Math.min(27,s.velocity+17*multiplier);s.angle=Math.min(1.1,s.angle+.11*multiplier);}

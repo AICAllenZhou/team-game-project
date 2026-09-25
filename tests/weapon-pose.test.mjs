@@ -109,3 +109,13 @@ test('fan fire adds twelve percent more recoil impulse',()=>{
  const normal={angle:0,velocity:0},fan={angle:0,velocity:0};kickRecoil(normal);kickRecoil(fan,true);
  assert.ok(Math.abs(fan.velocity/normal.velocity-1.12)<1e-10);assert.ok(Math.abs(fan.angle/normal.angle-1.12)<1e-10);
 });
+
+test('aimed recoil settles faster without changing the initial kick or default hip recovery',()=>{
+ for(const hz of [30,60,144]){
+  const hip={angle:0,velocity:0},aim={angle:0,velocity:0},explicitHip={angle:0,velocity:0};
+  for(const s of [hip,aim,explicitHip])kickRecoil(s);
+  assert.deepEqual(aim,hip);let hipTail=0,aimTail=0;
+  for(let i=0;i<hz;i++){stepRecoil(hip,1/hz);stepRecoil(explicitHip,1/hz,0);stepRecoil(aim,1/hz,1);if(i/hz>.3){hipTail+=Math.abs(hip.angle);aimTail+=Math.abs(aim.angle);}}
+  assert.deepEqual(hip,explicitHip);assert.ok(aimTail<hipTail*.4);assert.ok(Math.abs(aim.angle)<.001);
+ }
+});
