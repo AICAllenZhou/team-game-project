@@ -1,7 +1,7 @@
 export const CELL=.14;
 export const WALLS=[{x:15,y:0,z:-6,nx:4,ny:22,nz:30,color:0xa9764d},{x:20,y:0,z:2,nx:4,ny:18,nz:26,color:0xb0a38c},{x:15,y:0,z:10,nx:3,ny:20,nz:24,color:0x91634a}];
 export function createVoxelWalls(){
- const walls=WALLS.map(w=>({...w,cells:new Uint8Array(w.nx*w.ny*w.nz).fill(1)}));let revision=0;
+ const walls=WALLS.map(w=>({...w,version:0,cells:new Uint8Array(w.nx*w.ny*w.nz).fill(1)}));let revision=0;
  const index=(w,x,y,z)=>(y*w.nz+z)*w.nx+x;
  function trace(o,d,max=70){
   let best=null;
@@ -22,15 +22,15 @@ export function createVoxelWalls(){
   for(let y=cy-radius;y<=cy+radius;y++)for(let z=cz-radius;z<=cz+radius;z++)for(let x=cx-radius;x<=cx+radius;x++){
    if(x<0||x>=w.nx||y<0||y>=w.ny||z<0||z>=w.nz||(x-cx)**2+(y-cy)**2+(z-cz)**2>radius*radius)continue;
    const i=index(w,x,y,z);if(w.cells[i]){w.cells[i]=0;removed.push(i);}
-  }if(removed.length)revision++;return removed;
+  }if(removed.length){revision++;w.version++;}return removed;
  }
- function apply(wall,removed){const w=walls[wall];if(!w)return;let changed=false;for(const i of removed)if(i>=0&&i<w.cells.length&&w.cells[i]){w.cells[i]=0;changed=true;}if(changed)revision++;}
+ function apply(wall,removed){const w=walls[wall];if(!w)return;let changed=false;for(const i of removed)if(i>=0&&i<w.cells.length&&w.cells[i]){w.cells[i]=0;changed=true;}if(changed){revision++;w.version++;}}
  function snapshot(){return walls.map(w=>Array.from(w.cells.keys()).filter(i=>!w.cells[i]));}
  function collide(p,old){
   for(const w of walls){const lo={},hi={};for(const a of ['x','y','z']){lo[a]=Math.max(0,Math.floor((p[a]-(a==='y'?0:.28)-w[a])/CELL));hi[a]=Math.min(w['n'+a]-1,Math.floor((p[a]+(a==='y'?1.65:.28)-w[a])/CELL));}
    for(let y=lo.y;y<=hi.y;y++)for(let z=lo.z;z<=hi.z;z++)for(let x=lo.x;x<=hi.x;x++)if(w.cells[index(w,x,y,z)]){p.x=old.x;p.z=old.z;p.vx=p.vz=0;return;}
   }
  }
- function reset(){for(const w of walls)w.cells.fill(1);revision++;}
+ function reset(){for(const w of walls){w.cells.fill(1);w.version++;}revision++;}
  return {walls,trace,damage,apply,snapshot,collide,reset,get revision(){return revision;}};
 }

@@ -167,7 +167,7 @@ function equip(next){if(!gameLoop.running||local.reloadUntil||reloading||next===
 const modifyPanel=document.createElement('div');modifyPanel.id='modify';modifyPanel.hidden=true;document.body.append(modifyPanel);
 const resetButton=document.createElement('button');resetButton.id='reset-walls';resetButton.textContent='Reset walls';document.body.append(resetButton);
 resetButton.onclick=()=>{if(online)post('resetWalls').catch(networkError);else{wallWorld.reset();wallView.update(0);renderScene();}};
-function closeModify(){modifyPanel.hidden=true;document.body.classList.remove('modifying');$('game').requestPointerLock().catch(()=>{});}
+function closeModify(){modifyPanel.hidden=true;document.body.classList.remove('modifying');captureMouse().catch(()=>{});}
 function openModify(){
  if(local.hp<=0||reloading||local.reloadUntil)return;
  if(!modifyPanel.hidden){closeModify();return;}
@@ -246,13 +246,15 @@ $('play').onclick=async()=>{
  if(r.status===404||r.status===405){online=false;}
  else {if(!r.ok)throw Error(await r.text());const data=await r.json();token=data.token;id=data.id;online=true;events=new EventSource('/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>{const state=JSON.parse(e.data);if(gameLoop.running)applyState(state);else pendingState=state;});events.addEventListener('wallReset',()=>{wallWorld.reset();wallView.update(0);if(!gameLoop.running)renderScene();});events.addEventListener('wallState',e=>JSON.parse(e.data).forEach((removed,i)=>wallWorld.apply(i,removed)));events.addEventListener('wallDamage',e=>{const d=JSON.parse(e.data);wallWorld.apply(d.wallId,d.removed);if(gameLoop.running)wallView.burst(d.wallId,d.removed);});events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));events.addEventListener('clayBreak',e=>{const broken=JSON.parse(e.data);serverClays=serverClays.filter(f=>f.id!==broken.id);if(gameLoop.running)skeetView.shatter(broken,gameLoop.now());});dummies.forEach(g=>g.visible=false);}
  }catch(e){joinError('Could not join: '+e.message);joining=false;$('play').disabled=false;return;}joining=false;$('play').disabled=false;}
- try{try{await $('game').requestPointerLock({unadjustedMovement:true});}catch(e){if(e.name!=='NotSupportedError')throw e;await $('game').requestPointerLock();}}catch{joinError('Click Join again to capture the mouse.');syncActivity(false);}
+ try{await captureMouse();}catch{joinError('Click Join again to capture the mouse.');syncActivity(false);}
 };
+async function captureMouse(){try{await $('game').requestPointerLock({unadjustedMovement:true});}catch(e){if(e.name!=='NotSupportedError')throw e;await $('game').requestPointerLock();}}
+const mouseAim={freeX:0,freeY:0,lookYaw:0,lookPitch:0};
 document.addEventListener('pointerlockchange',syncActivity);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)document.exitPointerLock();syncActivity();});
 window.addEventListener('focus',syncActivity);
 document.addEventListener('mousemove',e=>{if(document.pointerLockElement!==$('game'))return;
- const aim={freeX,freeY,lookYaw,lookPitch};freeAimInput(aim,e.movementX,e.movementY,Number(focusHeld));({freeX,freeY,lookYaw,lookPitch}=aim);
+ mouseAim.freeX=freeX;mouseAim.freeY=freeY;mouseAim.lookYaw=lookYaw;mouseAim.lookPitch=lookPitch;freeAimInput(mouseAim,e.movementX,e.movementY,Number(focusHeld));({freeX,freeY,lookYaw,lookPitch}=mouseAim);
 });
 window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockElement===$('game')){e.preventDefault();if(weapon==='shotgun'){focusHeld=false;fire(false,gameLoop.now(),true);}else focusHeld=true;}});
 window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;});
