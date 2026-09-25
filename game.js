@@ -363,7 +363,7 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  pelletMesh.count=0;
  for(let i=projectiles.length-1;i>=0;i--){const p=projectiles[i],age=(now-p.born)/1000,progress=p.round?projectileProgress(p.distance,age):Math.min(1,age/Math.max(.12,p.distance/240));
   positionScratch.copy(p.origin).addScaledVector(p.direction,p.distance*progress);
-  if(p.round){p.round.position.copy(positionScratch);p.round.visible=progress<1;}
+  if(p.round){p.round.position.copy(positionScratch);const size=p.result.bulletSize||1,width=Math.min(3,Math.max(1,positionScratch.distanceTo(camera.position)*.12));p.round.scale.set(size*width,size,size*width);p.round.visible=progress<1;}
   else if(progress<1&&pelletMesh.count<384){pelletRotation.setFromUnitVectors(pelletUp,p.direction);const width=Math.min(6,Math.max(1,positionScratch.distanceTo(camera.position)*.24));pelletScale.set(width*(p.result.bulletSize||1),p.result.bulletSize||1,width*(p.result.bulletSize||1));pelletMatrix.compose(positionScratch,pelletRotation,pelletScale);pelletMesh.setMatrixAt(pelletMesh.count++,pelletMatrix);}
   if(progress===1&&(p.confirmed||age>2)){if(p.confirmed)impactEffect(p.result,now);if(p.round)scene.remove(p.round);if(pendingShots.get(p.result.shotId)===p)pendingShots.delete(p.result.shotId);projectiles.splice(i,1);}
  }

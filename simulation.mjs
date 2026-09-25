@@ -24,7 +24,7 @@ export function resolveBarrelShot(player,data){
  }else if(data.muzzleOffset&&[data.muzzleOffset.x,data.muzzleOffset.y,data.muzzleOffset.z].every(Number.isFinite)&&Math.hypot(data.muzzleOffset.x,data.muzzleOffset.y,data.muzzleOffset.z)<=1.4){origin={x:player.x+data.muzzleOffset.x,y:player.y+1.5+data.muzzleOffset.y,z:player.z+data.muzzleOffset.z};}
  return {origin,direction};
 }
-export function projectileProgress(distance,seconds){return Math.min(1,Math.max(0,seconds)/Math.max(.05,distance/PROJECTILE_SPEED));}
+export function projectileProgress(distance,seconds){return Math.min(1,Math.max(0,seconds)/Math.max(.14,distance/PROJECTILE_SPEED));}
 
 export function predictionCorrection(predicted,authoritative){
  const x=authoritative.x-predicted.x,z=authoritative.z-predicted.z;

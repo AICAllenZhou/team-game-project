@@ -21,8 +21,8 @@ test('sky misses do not create impacts and world surfaces block players',()=>{
  assert.equal(target.targetId,'target-1');assert.equal(target.hit,null);
 });
 test('visible flight is frame-rate independent and close shots remain visible',()=>{
- assert.equal(projectileProgress(16,.05),.5);assert.equal(projectileProgress(16,.1),1);
- assert.ok(projectileProgress(1,1/60)<1);assert.equal(projectileProgress(1,.05),1);
+ assert.equal(projectileProgress(32,.1),.5);assert.equal(projectileProgress(32,.2),1);
+ assert.ok(projectileProgress(1,1/60)<1);assert.ok(projectileProgress(1,.065)<1);assert.equal(projectileProgress(1,.14),1);
  for(const hz of [30,60,144]){let elapsed=0;for(let i=0;i<hz;i++)elapsed+=1/hz;assert.equal(projectileProgress(70,elapsed),1);}
 });
 test('packet timing jitter does not pull the walking player back',()=>{
