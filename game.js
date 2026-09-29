@@ -1,3 +1,6 @@
+import {createMenu} from './menu.js';
+import {API_BASE} from './runtime-config.js';
+import {applyDamage,shotDamage,setPowers} from './combat.mjs';
 import {createVoxelWalls} from './voxel-walls.mjs';
 import {createVoxelWallView} from './voxel-wall-view.js';
 import * as THREE from './vendor/three.module.js';
@@ -138,6 +141,7 @@ batchMeshes(scenery);
 scenery.updateWorldMatrix(true,true);
 scenery.traverse(object=>{object.matrixAutoUpdate=false;object.matrixWorldAutoUpdate=false;});
 const dummies=[cowboy(0xa57450),cowboy(0x6b9290),cowboy(0x9d7b8f)];dummies.forEach((g,i)=>g.position.set((i-1)*5,0,-9-Math.abs(i-1)*3));
+let menu,hasJoined=false,currentRoom='frontier';
 let token=null,id=null,events=null,online=false,joining=false,local={x:0,y:0,z:8,vy:0,hp:100,ammo:6},yaw=0,pitch=0,freeX=0,freeY=0,gunYaw=0,gunPitch=0,lastShot=-Infinity,reloading=0,last=0,lastAimFrame=0,started=0,serverTime=0,receivedAt=0;
 const keys=new Set(),peers=new Map(),projectiles=[];let audio;
 const pendingShots=new Map();let shotSequence=0,barrelHeat=0;
@@ -197,8 +201,12 @@ function captureAim(){const {origin,direction}=captureBarrelRay(gun);
  for(let i=0;i<flights.length;i++)liveClays.push(clayPose(flights[i],now,clayCandidates[i]));
  return {origin,direction,result:traceShot(origin,direction,candidates,liveClays,wallWorld)};
 }
+function damageDummies(results,now){
+ for(const result of results){const victim=practiceCandidates.find(p=>p.id===result.hit);if(victim)applyDamage(victim,shotDamage(weapon,local.mods,result.headshot),now);}
+ for(let i=0;i<dummies.length;i++)dummies[i].visible=practiceCandidates[i].hp>0;
+}
 function sound(){try{audio?.play(weapon==='shotgun'?.82:1);}catch{}}
-async function post(path,data={}){const r=await fetch('/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,...data})});if(!r.ok)throw Error(await r.text()||'Connection lost');return r.status===204?null:r.json();}
+async function post(path,data={}){const r=await fetch(API_BASE+'/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,...data})});if(!r.ok)throw Error(await r.text()||'Connection lost');return r.status===204?null:r.json();}
 function shotEffect(s,predicted=false){
  if(!gameLoop.running)return;
  if(!online)for(const change of s.wallChanges||[])wallView.burst(change.wallId,change.removed);
@@ -232,22 +240,28 @@ function applyState(s){if(s.time<=serverTime)return;serverTime=s.time;receivedAt
  for(const [key,g] of peers)if(!ids.has(key)){scene.remove(g);peers.delete(key);}
  for(const g of peers.values()){const shotgun=g.userData.target.weapon==='shotgun';g.userData.rightHand.position.z=shotgun?-.38:-.55;g.userData.revolver.visible=!shotgun;g.userData.shotgun.visible=shotgun;}
 }
-function joinError(message){$('play').title=message;$('play').setAttribute('aria-label','Join. '+message);console.warn(message);}
-$('play').onclick=async()=>{
+function joinError(message){menu?.message(message);$('play').title=message;$('play').setAttribute('aria-label','Join. '+message);console.warn(message);}
+async function playGame(options={}){
  if(joining)return;
+ if(!options.name)return;
  joining=true;$('play').disabled=true;
  try{audio??=createWeaponAudio();await Promise.all([audio.resume(),audio.ready]);}
  catch{joinError('Gunshot audio could not load. Refresh and try again.');audio=null;return;}
  finally{joining=false;$('play').disabled=false;}
  if(!matchMedia('(pointer:fine)').matches){joinError('This prototype needs a keyboard and mouse.');return;}
- $('play').title='';$('play').removeAttribute('aria-label');
- if(!token){joining=true;$('play').disabled=true;try{
- const r=await fetch('/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Drifter',room:'frontier'})});
- if(r.status===404||r.status===405){online=false;}
- else {if(!r.ok)throw Error(await r.text());const data=await r.json();token=data.token;id=data.id;online=true;events=new EventSource('/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>{const state=JSON.parse(e.data);if(gameLoop.running)applyState(state);else pendingState=state;});events.addEventListener('wallReset',()=>{wallWorld.reset();wallView.update(0);if(!gameLoop.running)renderScene();});events.addEventListener('wallState',e=>JSON.parse(e.data).forEach((removed,i)=>wallWorld.apply(i,removed)));events.addEventListener('wallDamage',e=>{const d=JSON.parse(e.data);wallWorld.apply(d.wallId,d.removed);if(gameLoop.running)wallView.burst(d.wallId,d.removed);});events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));events.addEventListener('clayBreak',e=>{const broken=JSON.parse(e.data);serverClays=serverClays.filter(f=>f.id!==broken.id);if(gameLoop.running)skeetView.shatter(broken,gameLoop.now());});dummies.forEach(g=>g.visible=false);}
- }catch(e){joinError('Could not join: '+e.message);joining=false;$('play').disabled=false;return;}joining=false;$('play').disabled=false;}
- try{await captureMouse();}catch{joinError('Click Join again to capture the mouse.');syncActivity(false);}
-};
+ $('play').title='';$('play').removeAttribute('aria-label');menu?.message('');
+ if(!token||options.targetId){joining=true;$('play').disabled=true;try{
+ const r=await fetch(API_BASE+'/api/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:options.name,room:options.room,previousToken:token,targetId:options.targetId,adminToken:options.adminToken})});
+ if((r.status===404||r.status===405)&&!options.targetId&&!API_BASE){online=false;local.name=options.name;local.weapon=weapon;local.ammoByWeapon=ammoByWeapon;menu?.setMode('practice');}
+ else {if(!r.ok)throw Error(await r.text());const data=await r.json();events?.close();
+ clearInterval(inputTimer);clearInterval(idleTimer);pendingState=null;predictionReady=false;serverTime=0;reloading=0;
+ for(const g of peers.values())scene.remove(g);peers.clear();shotCandidates.length=0;
+ for(const p of projectiles)if(p.round)scene.remove(p.round);projectiles.length=0;pendingShots.clear();serverClays=[];wallWorld.reset();
+ token=data.token;id=data.id;currentRoom=data.room;online=true;menu?.setMode('online');events=new EventSource(API_BASE+'/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>{const state=JSON.parse(e.data);if(gameLoop.running)applyState(state);else pendingState=state;});events.addEventListener('wallReset',()=>{wallWorld.reset();wallView.update(0);if(!gameLoop.running)renderScene();});events.addEventListener('wallState',e=>JSON.parse(e.data).forEach((removed,i)=>wallWorld.apply(i,removed)));events.addEventListener('wallDamage',e=>{const d=JSON.parse(e.data);wallWorld.apply(d.wallId,d.removed);if(gameLoop.running)wallView.burst(d.wallId,d.removed);});events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));events.addEventListener('clayBreak',e=>{const broken=JSON.parse(e.data);serverClays=serverClays.filter(f=>f.id!==broken.id);if(gameLoop.running)skeetView.shatter(broken,gameLoop.now());});dummies.forEach(g=>g.visible=false);}
+ }catch(e){joinError('Could not join: '+e.message);joining=false;$('play').disabled=false;throw e;}joining=false;$('play').disabled=false;}
+ hasJoined=true;menu?.sessionChanged();
+ try{await captureMouse();}catch{joinError('Click Resume game to capture the mouse.');syncActivity(false);}
+}
 async function captureMouse(){try{await $('game').requestPointerLock({unadjustedMovement:true});}catch(e){if(e.name!=='NotSupportedError')throw e;await $('game').requestPointerLock();}}
 const mouseAim={freeX:0,freeY:0,lookYaw:0,lookPitch:0};
 document.addEventListener('pointerlockchange',syncActivity);
@@ -260,11 +274,11 @@ window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockEle
 window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;});
 $('game').addEventListener('contextmenu',e=>e.preventDefault());
 window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='KeyR'&&document.pointerLockElement)reload();});
-window.addEventListener('keydown',e=>{if(e.code==='KeyF'&&!e.repeat){e.preventDefault();launchClay();}});
+window.addEventListener('keydown',e=>{if(e.code==='KeyF'&&!e.repeat&&document.pointerLockElement){e.preventDefault();launchClay();}});
 window.addEventListener('keydown',e=>{if(!e.repeat&&['Digit1','Digit2'].includes(e.code))equip(e.code==='Digit2'?'shotgun':'revolver');});
 window.addEventListener('keyup',e=>{keys.delete(e.code);});window.addEventListener('blur',()=>{document.exitPointerLock();syncActivity(false);});
-function reload(){queuedFanClick=false;if(online){post('reload').catch(networkError);}else if(!reloading&&local.ammo<ammoProfile(weapon,local.mods).capacity)reloading=gameLoop.now()+WEAPONS[weapon].reload;}
-function networkError(e){joinError(e.message+' — reload the page to rejoin.');online=false;token=null;events?.close();pendingState=null;document.exitPointerLock();syncActivity(false);}
+function reload(){queuedFanClick=false;if(local.powers?.infiniteAmmo)return;if(online){post('reload').catch(networkError);}else if(!reloading&&local.ammo<ammoProfile(weapon,local.mods).capacity)reloading=gameLoop.now()+WEAPONS[weapon].reload;}
+function networkError(e){joinError(e.message+' — reload the page to rejoin.');online=false;token=null;hasJoined=false;menu?.sessionChanged();events?.close();pendingState=null;document.exitPointerLock();syncActivity(false);}
 function fire(requestFan,now=gameLoop.now(),both=false){
  if(!document.pointerLockElement||local.hp<=0||local.reloadUntil||reloading)return;
  if(!local.ammo){reload();return;}
@@ -274,9 +288,10 @@ function fire(requestFan,now=gameLoop.now(),both=false){
   const {barrel,cost}=shotgunDischarge(local.ammo,both);shotgunGun.userData.lastBarrel=barrel;
   const profile=ammoProfile(weapon,local.mods);
   const pellets=shotgunPellets(origin,direction,barrelRight,shotId,barrel,profile).map(ray=>({...ray,...(online?traceShot(ray.origin,ray.direction,shotCandidates,liveClays,wallWorld):destructiveShot(ray.origin,ray.direction,practiceCandidates,liveClays,wallWorld,profile))}));
-  lastShot=now;lastShotWeapon=weapon;local.ammo-=cost;ammoByWeapon.shotgun=local.ammo;
-  wristSpring.velocity=Math.min(18,wristSpring.velocity+(cost===2?13:9)*profile.recoil);wristSpring.angle=Math.min(.5,wristSpring.angle+(cost===2?.055:.035)*profile.recoil);cameraSpring.velocity=Math.min(1.2,cameraSpring.velocity+(cost===2?.55:.35));sound();
+  lastShot=now;lastShotWeapon=weapon;if(!local.powers?.infiniteAmmo)local.ammo-=cost;ammoByWeapon.shotgun=local.ammo;
+  if(!local.powers?.noRecoil){wristSpring.velocity=Math.min(18,wristSpring.velocity+(cost===2?13:9)*profile.recoil);wristSpring.angle=Math.min(.5,wristSpring.angle+(cost===2?.055:.035)*profile.recoil);cameraSpring.velocity=Math.min(1.2,cameraSpring.velocity+(cost===2?.55:.35));}sound();
   shotExposure.energy=Math.min(2,shotExposure.energy+(cost===2?1.3:.9));for(let i=0;i<pellets.length;i+=profile.pellets)emitParticles(pellets[i].origin,direction,0xb5aea1,8,true,{speed:5,spread:.65,life:.7,size:1.5,opacity:.16,drag:2.3});
+  if(!online)damageDummies(pellets,now);
   shotEffect({id:online?id:'local',shotId,weapon,origin,direction,pellets,bulletSize:profile.size},online);
   if(online)post('fire',{shotId,both,muzzle:origin,direction,barrelRight,gunYaw:Math.atan2(-direction.x,-direction.z),gunPitch:Math.asin(clamp(direction.y,-1,1))}).catch(networkError);
   return;
@@ -286,11 +301,12 @@ function fire(requestFan,now=gameLoop.now(),both=false){
  // Freeze the exact ray that was shown, before recoil changes the gun pose.
  const aim=displayedAim||captureAim(),origin=aim.origin.clone(),direction=aim.direction.clone(),profile=ammoProfile(weapon,local.mods),result=online?aim.result:destructiveShot(origin,direction,practiceCandidates,liveClays,wallWorld,profile);
  frozenAim={origin:origin.clone(),direction:direction.clone(),result,until:now+90};
- lastShot=now;lastShotWeapon=weapon;cockRevolver(gun,now,fan);const beforeAngle=wristSpring.angle,beforeKick=wristSpring.velocity;kickRecoil(wristSpring,fan);wristSpring.velocity=beforeKick+(wristSpring.velocity-beforeKick)*profile.recoil;wristSpring.angle=beforeAngle+(wristSpring.angle-beforeAngle)*profile.recoil;wristTwist+=(Math.random()-.35)*(fan?.135:.12);cameraSpring.velocity=Math.min(2,cameraSpring.velocity+1.1*profile.recoil);sound();flashLife=.055;flash.visible=gapFlash.visible=true;flashOuterMaterial.opacity=.7;flashCoreMaterial.opacity=1;flash.rotation.z=Math.random()*Math.PI;flash.scale.set(1,1,.85+Math.random()*.4);muzzleLight.intensity=20;barrelHeat=Math.min(1,barrelHeat+.45);
+ lastShot=now;lastShotWeapon=weapon;cockRevolver(gun,now,fan);if(!local.powers?.noRecoil){const beforeAngle=wristSpring.angle,beforeKick=wristSpring.velocity;kickRecoil(wristSpring,fan);wristSpring.velocity=beforeKick+(wristSpring.velocity-beforeKick)*profile.recoil;wristSpring.angle=beforeAngle+(wristSpring.angle-beforeAngle)*profile.recoil;wristTwist+=(Math.random()-.35)*(fan?.135:.12);cameraSpring.velocity=Math.min(2,cameraSpring.velocity+1.1*profile.recoil);}sound();flashLife=.055;flash.visible=gapFlash.visible=true;flashOuterMaterial.opacity=.7;flashCoreMaterial.opacity=1;flash.rotation.z=Math.random()*Math.PI;flash.scale.set(1,1,.85+Math.random()*.4);muzzleLight.intensity=20;barrelHeat=Math.min(1,barrelHeat+.45);
  shotExposure.energy=Math.min(1.2,shotExposure.energy+.38);
  emitParticles(origin,direction,0xffd684,4,false);emitParticles(origin,direction,0xaaa396,2,true);
+ if(!online)damageDummies([result],now);
  const shotId=String(++shotSequence);shotEffect({id:online?id:'local',shotId,origin,direction,...result,fan,bulletSize:profile.size},online);
- local.ammo--;
+ if(!local.powers?.infiniteAmmo)local.ammo--;
  if(online)post('fire',{shotId,fan,muzzle:origin,direction,gunYaw:Math.atan2(-direction.x,-direction.z),gunPitch:Math.asin(clamp(direction.y,-1,1))}).catch(networkError);
 }
 window.addEventListener('mousedown',e=>{if(e.button!==0||document.pointerLockElement!==$('game')||local.hp<=0)return;
@@ -302,9 +318,9 @@ window.addEventListener('mousedown',e=>{if(e.button!==0||document.pointerLockEle
 function sendInput(active=gameLoop.running){
  if(!online)return;
  if(inputInFlight){if(!active)stopInputPending=true;return;}
- inputInFlight=true;
- post('input',{x:active?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:active?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,gunYaw,gunPitch,jump:active&&keys.has('Space')})
- .catch(networkError).finally(()=>{inputInFlight=false;if(stopInputPending){stopInputPending=false;sendInput(false);}});
+ inputInFlight=true;const submittedToken=token;
+ post('input',{active,x:active?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:active?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,gunYaw,gunPitch,jump:active&&keys.has('Space')})
+ .catch(e=>{if(token===submittedToken)networkError(e);}).finally(()=>{inputInFlight=false;if(stopInputPending){stopInputPending=false;sendInput(false);}});
 }
 function syncActivity(allowRun=true){
  if(!renderReady)return;
@@ -323,7 +339,10 @@ function syncActivity(allowRun=true){
   }
  }
 }
-function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now-started)/1000,locked=!!document.pointerLockElement;
+function frame(now){
+ if(!online)for(let i=0;i<practiceCandidates.length;i++){const p=practiceCandidates[i];if(p.hp<=0&&now>=p.deadUntil){p.hp=100;p.deadUntil=0;dummies[i].visible=true;}}
+ if(hasJoined)$('hud').textContent=local.hp<=0?'Eliminated · Respawning…':`${local.name||'Player'} · ${online?currentRoom:'Practice'} · HP ${local.powers?.infiniteHp?'∞':local.hp} · Ammo ${local.powers?.infiniteAmmo?'∞':local.ammo}`;
+ const dt=Math.min((now-last)/1000,.05);last=now;const t=(now-started)/1000,locked=!!document.pointerLockElement;
  focusBlend+=(Number(focusHeld&&locked&&local.hp>0)-focusBlend)*(1-Math.exp(-12*dt));
  // Input gain uses the actual button state, never the animated focus blend.
  const aimPose={yaw,pitch,lookYaw,lookPitch,freeX,freeY,handYaw,handPitch,previousFreeX,previousFreeY};followAim(aimPose,(now-lastAimFrame)/1000);lastAimFrame=now;({yaw,pitch,handYaw,handPitch,previousFreeX,previousFreeY}=aimPose);
@@ -335,12 +354,12 @@ function frame(now){const dt=Math.min((now-last)/1000,.05);last=now;const t=(now
  if(!online)move(local,{x:locked?Number(keys.has('KeyD'))-Number(keys.has('KeyA')):0,z:locked?Number(keys.has('KeyS'))-Number(keys.has('KeyW')):0,yaw,pitch,jump:locked&&keys.has('Space')},dt);
  wallWorld.collide(wallPlayer,wallOld);
  if(reloading&&now>=reloading){reloading=0;local.ammo=ammoProfile(weapon,local.mods).capacity;ammoByWeapon[weapon]=local.ammo;}
- const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k)),lean=locked?(Number(keys.has('KeyE'))-Number(keys.has('KeyQ'))):0;
+ const moving=locked&&['KeyW','KeyA','KeyS','KeyD'].some(k=>keys.has(k));
  walkBlend+=(Number(moving)-walkBlend)*(1-Math.exp(-10*dt));walkPhase+=dt*9*walkBlend;const bob=Math.sin(walkPhase)*.025*walkBlend;
  gunYaw=yaw+handYaw;gunPitch=pitch+handPitch;
  const view=online&&predictionReady?predicted:local;smoothPosition.lerp(positionScratch.set(view.x,view.y+1.5,view.z),1-Math.exp(-35*dt));camera.position.copy(smoothPosition);const aimRecovery=weapon==='revolver'&&focusHeld&&locked?focusBlend:0;stepRecoil(wristSpring,dt,aimRecovery);stepRecoil(cameraSpring,dt,aimRecovery);wristTwist*=Math.exp(-(10+14*aimRecovery)*dt);camera.rotation.set(pitch+cameraSpring.angle,yaw,0,'YXZ');
  const reloadEnd=online?local.reloadUntil:reloading;
- placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,lean,recoil:0,reload:!!reloadEnd,shotgun:weapon==='shotgun'});
+ placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,recoil:0,reload:!!reloadEnd,shotgun:weapon==='shotgun'});
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');
  animateRevolver(gun,now,dt);
  animateShotgun(shotgunGun,weapon==='shotgun'?local.ammo:ammoByWeapon.shotgun,dt,weapon==='shotgun'&&reloadEnd?1-(reloadEnd-(online?skeetTime():now))/WEAPONS.shotgun.reload:-1,ejectShells);
@@ -402,4 +421,10 @@ window.addEventListener('resize',resize);resize();camera.position.set(0,1.5,8);
 // first shot/aim does not pause movement to compile new effects.
 renderer.setRenderTarget(shotBuffer);await renderer.compileAsync(scene,camera);
 renderer.setRenderTarget(null);await renderer.compileAsync(screenScene,screenCamera);
-renderReady=true;frame(gameLoop.now());syncActivity();
+renderReady=true;
+menu=createMenu({join:playGame,getSession:()=>({token,id,online,started:hasJoined,room:currentRoom,powers:local.powers}),changePowers:(powers,player)=>{
+ if(player){local=player;pendingState=null;}else{local.weapon=weapon;local.ammoByWeapon=ammoByWeapon;setPowers(local,powers);Object.assign(ammoByWeapon,local.ammoByWeapon);}
+ if(powers.infiniteAmmo)reloading=0;
+ if(powers.noRecoil){wristSpring.angle=wristSpring.velocity=cameraSpring.angle=cameraSpring.velocity=wristTwist=0;}
+}});
+frame(gameLoop.now());syncActivity();

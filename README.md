@@ -4,7 +4,7 @@ A collaborative game project.
 
 ## DUSTLINE prototype
 
-A medium-paced, low-poly Wild West FPS built with HTML, CSS, JavaScript and Three.js. Includes a flat base plate, bean cowboys with sphere hands, low-poly revolvers, hip-fire only, a wide helmet/bodycam-style view, free-aim weapon inertia, six-round cylinders, 1.8-second reloads, health, three-second respawns and a scoreboard. The hidden free-aim point moves the hand and revolver independently within a bounded range while a fixed share of mouse movement turns the helmet. A fired revolver uses the actual delayed barrel direction. Movement and Q/E leaning add weapon motion. Movement is 4.5 units/second; three hits eliminate a player. No aiming-down-sights mode.
+A medium-paced, low-poly Wild West FPS built with HTML, CSS, JavaScript and Three.js. Includes a flat base plate, bean cowboys with sphere hands, low-poly revolvers, hip-fire only, a wide helmet/bodycam-style view, free-aim weapon inertia, six-round cylinders, 1.8-second reloads, health, three-second respawns and a scoreboard. The hidden free-aim point moves the hand and revolver independently within a bounded range while a fixed share of mouse movement turns the helmet. A fired revolver uses the actual delayed barrel direction. Movement adds weapon motion. Leaning has been removed. Movement is 4.5 units/second; two standard revolver body hits eliminate a player. No aiming-down-sights mode.
 
 ### Run multiplayer
 
@@ -18,9 +18,9 @@ Holding RMB shows a bright amber beam along the actual barrel direction, stoppin
 
 Camera sensitivity is constant across the entire hand range, with RMB selecting a slower rate. Camera turning follows mouse distance directly without acceleration, speed caps or continued rotation after stopping. Raw mouse input is requested where supported. Hand sensitivity is linear up to its physical stop, with a fixed 35 ms follow time that is consistent across frame rates. RMB selects its slower sensitivity immediately; the beam appearance eases separately. Walking accelerates and stops smoothly using identical integration on the server and client. Network correction velocity also eases in. The camera stays level, with walking bob on the gun only. Camera recoil uses a gentle spring impulse while the gun kicks harder. One rendering path stays active and the muzzle light stays registered to avoid shot-time shader changes. Local game files are served without caching so a refresh loads the latest controls.
 
-Install Node.js 22 or newer, then run `node server.mjs` and open `http://localhost:3000`. No package installation or build is needed. Players on the same network can open `http://YOUR-LAN-IP:3000` and enter the same room name. Each room supports 12 players. To play over the internet, deploy this Node server to a host supporting long-lived HTTP/SSE connections and share its HTTPS URL. Allow the server port through your firewall only as needed.
+Install Node.js 22 or newer, then run `node server.mjs` and open `http://localhost:3000`. No package installation or build is needed. Players on the same network can open `http://YOUR-LAN-IP:3000` and enter a username. Players are matched automatically into a shared arena; a new arena opens when 12 players are present. Each room supports 12 players. To play over the internet, deploy this Node server to a host supporting long-lived HTTP/SSE connections and share its HTTPS URL. Allow the server port through your firewall only as needed.
 
-Controls: WASD move, mouse free-aim/turn, hold RMB for the aiming beam, left click fire, double-click/rapid clicks fan-fire, Q/E lean, R reload, 1 revolver, 2 shotgun, F launch a clay, Space jump, Esc pause/release mouse. Desktop keyboard/mouse and WebGL are required. Click Join again if the browser requires a second gesture to capture the mouse.
+Controls: WASD move, mouse free-aim/turn, hold RMB for the aiming beam, left click fire, double-click/rapid clicks fan-fire, R reload, 1 revolver, 2 shotgun, F launch a clay, Space jump, Esc pause/release mouse. Desktop keyboard/mouse and WebGL are required. Click Join again if the browser requires a second gesture to capture the mouse.
 
 The Node server owns movement, ammunition, fire rate, barrel-direction hit detection and respawns. The local client renders each shot as a fast physical-looking round rather than an instant tracer line. This is an early prototype: no accounts, persistence, matchmaking, lag compensation or production anti-abuse protections. The arena is intentionally an open base plate for the team's later map/environment work.
 
@@ -54,3 +54,41 @@ The small rectangular skeet machine ahead of spawn launches one clay when you pr
 Press 2 for the sawed-off side-by-side double-barrel shotgun (1 returns to the revolver). Left-click fires one barrel; right-click fires both loaded barrels together. A single-barrel shot emits 12 pellets in a 7.5-degree half-angle spread cone (15 degrees total), followed by the other barrel on the next left click (24 pellets across both shots, or 24 in one right-click). Each shot consumes one shell and drops its own visible hammer; R starts a 2.4-second break-action reload. Reloading visibly opens the breech, ejects the old shells, inserts two new shells, closes the action and recocks the hammers. The closely joined twin barrels share their spacing with the shot simulation, and the shotgun is held at a closer fixed reach of .62 units. The shotgun retains independent free aim without ADS; its right button fires instead of entering focus. The revolver still uses RMB for slower camera movement. The shotgun has no aiming line or heat-wave beam; normal muzzle flash, bloom, recoil and shot vignette remain. Pellet directions and muzzle positions match client/server prediction, with one instanced draw for bright short pellet tracers smaller than the revolver projectile, with at least 120 ms of visible flight. Weapon switching preserves each weapon's ammo and cannot interrupt reloads.
 
 Ejected shotgun shells use world-space gravity, tumble, bounce and settle on the floor. The most recent 128 remain visible; settled shells sleep, and physics pauses with the game.
+
+
+## Usernames, admin panel and damage
+
+Enter a username (1–16 characters) before joining. A first-party `dustline_username` cookie remembers it for one year on that browser; it uses SameSite=Lax and Secure on HTTPS. The cookie stores only the display name, not admin access. Press Esc to return to the menu. Q/E no longer lean.
+
+Open **Admin**, enter **0310**, and choose **Unlock**. On a multiplayer server, code validation happens on the server and yields an eight-hour admin session. Five login attempts per minute are allowed per connection IP. The server can override the default code with `ADMIN_CODE`. The panel lists players across rooms, shows whether they are playing or in the menu, and refreshes every four seconds. **Join** switches into that player's room and removes your previous player session. A full room or a player who has left produces an error without removing your current session.
+
+After joining a game, the panel offers **No recoil**, **Infinite ammo**, and **Infinite health** for your player only. Ammo and health are enforced on the server. Infinite health restores you to 100 HP and prevents damage; infinite ammo cancels reloads and keeps both weapons loaded. Turning the switches off restores normal behavior. Powers carry across admin room switches. Solo practice supports the same local switches and damageable, respawning practice characters, but cannot list visitors or join other browsers.
+
+Players have 100 HP. The upper capsule above 1.38 units counts as the head; hat decoration does not extend the hitbox.
+
+| Ammo | Body damage | Head damage | Body hits to eliminate |
+| --- | ---: | ---: | ---: |
+| Standard revolver | 50 | 100 | 2 |
+| Small revolver | 25 | 100 | 4 |
+| Buckshot | 12 per pellet | 100 per pellet | 9 pellets |
+| Birdshot | 2 per pellet | 2 per pellet | 50 of 80 pellets per barrel |
+| Slug | 100 | 100 | 1 |
+
+## Connecting Vercel to multiplayer
+
+Vercel builds the browser files. The existing continuous Node simulation still needs one persistent Node.js 22+ server running `node server.mjs`. Use one instance: rooms and sessions are in memory.
+
+1. Deploy this repository's Node server with start command `node server.mjs` and the host-provided `PORT`.
+2. On that server, set `ALLOWED_ORIGINS=https://team-game-project.vercel.app` (comma-separated if additional frontend origins are needed), and optionally `ADMIN_CODE` (defaults to `0310`).
+3. In the Vercel project's build environment, set `MULTIPLAYER_URL` to that server's HTTPS origin and redeploy. `build-static.mjs` writes it into `dist/runtime-config.js`.
+4. Confirm the menu reads **Multiplayer server connected**. With no server URL and no local API, it explicitly shows **Solo practice**.
+
+No database or npm dependencies are required. The server host must support long-lived SSE connections; a static-only deployment cannot provide live multiplayer or cross-browser presence.
+
+## Same-Wi-Fi multiplayer
+
+On the host computer, double-click `start-lan.cmd` (Windows with Node.js 22+ installed), or run `node server.mjs`. Keep that process running. It prints a **Same-Wi-Fi join address** such as `http://192.168.1.108:3000`.
+
+Everyone on the same network opens that address in a desktop browser and enters a username. No room/lobby input is needed; the server automatically places players together, with overflow after 12 players. The host can also use `http://localhost:3000`. If Windows asks about Node.js network access, allow it on your private home network. The Vercel address is a separate static practice site; use the host's local address for Wi-Fi multiplayer. The local address can change when the host reconnects to Wi-Fi.
+
+The Admin button is a compact secondary button matching the menu.
