@@ -29,3 +29,12 @@ test('launch copies the ammo profile so switching weapons cannot change an airbo
  const profile={...AMMO_MODS.revolver.standard},bullet=round(profile);profile.damage=0;
  assert.equal(bullet.profile.damage,50);
 });
+
+
+test('penetrating rounds leave aligned exit points and can hit a second can',()=>{
+ const bullet=round(),targets=[{id:'front',x:10,y:0,z:5,hp:100},{id:'back',x:10,y:0,z:3,hp:100}];
+ const hits=advanceProjectile(bullet,.06,targets,[],null).filter(h=>h.hit);
+ assert.deepEqual(hits.map(h=>h.hit),['front','back']);assert.ok(hits[0].penetrated);assert.ok(Math.abs(hits[0].exitPoint.z-4.58)<1e-8);
+ const bird=round(AMMO_MODS.shotgun.birdshot),birdHits=advanceProjectile(bird,.06,targets,[],null);assert.equal(birdHits.length,1);assert.equal(birdHits[0].exitPoint,undefined);assert.equal(bird.alive,false);
+ assert.ok(hits[0].holeRadius>birdHits[0].holeRadius);
+});

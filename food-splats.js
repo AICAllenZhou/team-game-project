@@ -30,11 +30,11 @@ export function createFoodSplats(scene){
   });
   const mesh=new THREE.InstancedMesh(geometry,material,capacity);mesh.name='food-splats-'+type;mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);mesh.frustumCulled=false;mesh.count=0;mesh.renderOrder=1;scene.add(mesh);return {mesh,opacity,items:[]};
  });
- function add(type,x,z,size=.7){const group=groups[type];if(group.items.length>=capacity)group.items.shift();group.items.push({x,z,size,angle:Math.random()*Math.PI*2,life:30});}
+ function add(type,x,z,size=.7){const group=groups[type];if(group.items.length>=capacity)group.items.shift();group.items.push({x,z,size,angle:Math.random()*Math.PI*2,life:7});}
  function update(dt){for(const {mesh,opacity,items} of groups){
   mesh.count=0;
   for(let i=items.length-1;i>=0;i--){const p=items[i];p.life-=dt;if(p.life<=0){items.splice(i,1);continue;}
-   stamp.position.set(p.x,.014+mesh.count*.00003,p.z);stamp.rotation.set(-Math.PI/2,0,p.angle);stamp.scale.setScalar(p.size);stamp.updateMatrix();mesh.setMatrixAt(mesh.count,stamp.matrix);opacity.setX(mesh.count++,Math.min(1,p.life/3)*.92);
+   stamp.position.set(p.x,.014+mesh.count*.00003,p.z);stamp.rotation.set(-Math.PI/2,0,p.angle);stamp.scale.setScalar(p.size);stamp.updateMatrix();mesh.setMatrixAt(mesh.count,stamp.matrix);opacity.setX(mesh.count++,Math.min(1,p.life/1.5)*.92);
   }
   mesh.instanceMatrix.needsUpdate=true;opacity.needsUpdate=true;
  }}
