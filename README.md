@@ -20,7 +20,7 @@ Camera sensitivity is constant across the entire hand range, with RMB selecting 
 
 Install Node.js 22 or newer, then run `node server.mjs` and open `http://localhost:3000`. No package installation or build is needed. Players on the same network can open `http://YOUR-LAN-IP:3000` and enter a username. Players are matched automatically into a shared arena; a new arena opens when 12 players are present. Each room supports 12 players. To play over the internet, deploy this Node server to a host supporting long-lived HTTP/SSE connections and share its HTTPS URL. Allow the server port through your firewall only as needed.
 
-Controls: WASD move, mouse free-aim/turn, hold RMB for the aiming beam, left click fire, double-click/rapid clicks fan-fire, R reload, 1 revolver, 2 shotgun, F launch a clay, Space jump, Esc pause/release mouse. Desktop keyboard/mouse and WebGL are required. Click Join again if the browser requires a second gesture to capture the mouse.
+Controls: WASD move, mouse free-aim/turn, hold RMB for the aiming beam, left click fire, double-click/rapid clicks fan-fire, R reload, 1 revolver, 2 shotgun, F launch a clay, E open GUNZ at the counter, Space jump, Esc pause/release mouse. Desktop keyboard/mouse and WebGL are required. Click Join again if the browser requires a second gesture to capture the mouse.
 
 The Node server owns movement, ammunition, fire rate, barrel-direction hit detection and respawns. The local client renders each shot as a fast physical-looking round rather than an instant tracer line. This is an early prototype: no accounts, persistence, matchmaking, lag compensation or production anti-abuse protections. The arena is intentionally an open base plate for the team's later map/environment work.
 
@@ -100,3 +100,10 @@ Shots now spawn traveling rounds (160 units/s revolver, 220 units/s shotgun). Ea
 Characters are faceted baked-bean, tomato-soup and sweet-corn cans, with matching closed-cylinder hitboxes. Hits remove surface triangles and expose torn metal; food and metal fragments bounce and expire from a bounded particle pool. Killed practice cans tumble, bounce and settle, then respawn after three active seconds. Multiplayer clients receive authoritative impact events for the same damage effects.
 
 Can damage openings now scale with each projectile's ammo damage: tiny birdshot, small revolver holes, and large slug tears. Penetrating rounds cut matching entry and exit holes, including lid/base hits, and can continue into targets behind the first can. Contents drain from submerged holes into short-lived droplets and floor splats (7 seconds); food pieces expire after 5–6.5 seconds and have distinct kidney-bean and tapered-kernel shapes. Can falls use contact impulses, cylinder inertia, and a fill-dependent mass center. Cowboy hats tumble off separately on death.
+
+
+## GUNZ shack and beans
+
+The weathered wooden shack sits on the left side of the range. Walk through the front doorway, face the blue penguin behind the counter, and press **E**. The wooden ammo board sells permanent ammo unlocks: small revolver rounds cost 400 beans, birdshot costs 450, and slugs cost 500. Standard revolver rounds and buckshot are starter ammo; owned types can be equipped again at the shop without another charge. Pick up the shotgun before buying its ammo.
+
+Each can elimination pays 125 beans; each newly broken wall block pays one bean. Empty holes and repeat damage to an already dead can pay nothing. Reloads stay free. The old B modification shortcut no longer bypasses purchases. Beans and unlocks survive deaths; solo-practice progress also survives reloads in this browser. LAN balances are held by the server for the current player session, and proximity, health, inventory and funds are checked on the server. Vercel remains solo practice until the separately prepared multiplayer backend is activated.

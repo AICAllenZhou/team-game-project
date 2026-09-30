@@ -66,9 +66,12 @@ test('multiplayer shares room state, isolates rooms, enforces ammo and reload',a
  await post('reload',{token:c.token});await post('equip',{token:c.token,weapon:'revolver'});shotgunState=(await state(c.token)).players.find(p=>p.id===c.id);assert.equal(shotgunState.weapon,'shotgun');assert.ok(shotgunState.reloadUntil>Date.now());
  await new Promise(resolve=>setTimeout(resolve,2450));assert.equal((await state(c.token)).players.find(p=>p.id===c.id).ammo,2);
  const both=await shotgunShot(true);assert.equal(both.pellets.length,24);assert.notEqual(both.pellets[0].origin.x,both.pellets[12].origin.x);assert.equal((await state(c.token)).players.find(p=>p.id===c.id).ammo,0);
- const modified=await post('modify',{token:c.token,mod:'slug'});assert.equal(modified.mods.shotgun,'slug');assert.equal(modified.ammo,2);
- await new Promise(r=>setTimeout(r,200));const slug=await shotgunShot();assert.equal(slug.pellets.length,1);
- await post('equip',{token:c.token,weapon:'revolver'});const small=await post('modify',{token:c.token,mod:'small'});assert.equal(small.ammo,8);assert.equal(small.mods.revolver,'small');
+ // Ammo changes cannot bypass the shop or currency by calling the old endpoint.
+ for(const path of ['modify','buy']){
+  const response=await fetch('http://localhost:3099/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:c.token,weapon:'shotgun',mod:'slug',beans:99999})});assert.equal(response.status,403);
+ }
+ const wallet=(await state(c.token)).players.find(p=>p.id===c.id);assert.equal(wallet.beans,0);assert.deepEqual(wallet.ownedAmmo,['revolver:standard','shotgun:standard']);
+ for(const file of ['shop.mjs','shop-view.js','shop-ui.js'])assert.equal((await fetch('http://localhost:3099/'+file)).status,200);
  await post('resetWalls',{token:c.token});
  for(const file of ['weapons.mjs','shotgun-view.js'])assert.equal((await fetch('http://localhost:3099/'+file)).status,200);
  }finally{controllers.forEach(c=>c.abort());child.kill();}

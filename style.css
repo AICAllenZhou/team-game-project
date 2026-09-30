@@ -10,3 +10,15 @@ h1{font-size:44px;letter-spacing:5px;margin:4px 0 12px}h2{font-size:24px;margin:
 
 #connection-status:empty,#menu-message:empty,#admin-message:empty{display:none}#menu{width:min(340px,calc(100vw - 32px))}#menu h1{font-size:34px;letter-spacing:4px;margin:0 0 20px}
 body:not(.has-session) #reset-walls{display:none}
+
+/* Weathered shop board: chalk lettering on five rough wooden planks. */
+body.shopping #menu,body.shopping #play,body.shopping #admin-panel,body.shopping #reset-walls{display:none}
+#shop-prompt{position:fixed;left:50%;bottom:24%;transform:translateX(-50%);padding:10px 18px;color:#fff0cc;background:#241c15c9;border:1px solid #ac936777;font:700 15px Georgia,serif;letter-spacing:2px;pointer-events:none}
+#ammo-shop{position:fixed;z-index:30;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-.5deg);width:min(510px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow:auto;padding:26px 32px 18px;color:#f5e5bc;background-image:linear-gradient(#27160955,#23180c77),repeating-linear-gradient(0deg,transparent 0,transparent 104px,#251910 105px,#1b110c 110px),var(--shop-wood);background-size:auto,auto,100% 110px;border:8px solid #443225;box-shadow:inset 0 0 35px #1d130b99,0 18px 70px #000b;font-family:Georgia,serif;text-shadow:0 1px 2px #1f150c;}
+#ammo-shop:before,#ammo-shop:after{content:'●';position:absolute;top:9px;color:#272923;font-size:13px;text-shadow:0 1px #a2967c}#ammo-shop:before{left:10px}#ammo-shop:after{right:10px}
+.shop-heading{display:flex;align-items:center;justify-content:space-between}.shop-heading h2{font:900 52px Georgia,serif;letter-spacing:9px;transform:rotate(-2deg);line-height:1.1}
+#ammo-shop button{font-family:inherit;color:inherit;background:transparent;border:0;cursor:pointer;text-shadow:inherit}.shop-close{font-size:32px;padding:0 4px}.shop-balance{margin:8px 0 20px;letter-spacing:3px;font-size:14px;color:#ffe0a0}
+#ammo-shop h3{font-size:12px;letter-spacing:4px;margin:19px 0 5px;color:#d7bd8b;border-bottom:1px solid #e5c99266;padding-bottom:6px}
+#ammo-shop .shop-item{display:flex;align-items:center;justify-content:space-between;gap:14px;width:100%;padding:13px 0;text-align:left;border-bottom:1px dashed #dbc79833}
+.shop-item strong{display:block;font-size:19px;font-weight:normal}.shop-item small{display:block;font-size:11px;margin-top:4px;color:#cdb994}.shop-price{white-space:nowrap;font-size:14px}.shop-item:disabled{opacity:.67;cursor:default}.shop-item:not(:disabled):hover{color:#fff7dc;background:#e2ca8715}.shop-item:focus-visible,.shop-close:focus-visible{outline:2px solid #f2daa2;outline-offset:3px}.shop-note{font-size:12px;min-height:16px;text-align:center;color:#e4cba0;margin:20px 0 0}
+@media(max-height:620px){#ammo-shop{padding:18px 24px 12px}.shop-heading h2{font-size:36px}.shop-balance{margin:5px 0 10px}#ammo-shop .shop-item{padding:8px 0}#ammo-shop h3{margin-top:12px}}

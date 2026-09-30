@@ -1,3 +1,4 @@
+import {createWallet,canShop,ownsAmmo,purchaseAmmo,awardBeans} from './shop.mjs';
 import {launchProjectile,advanceProjectile} from './projectile-physics.mjs';
 import {networkInterfaces} from 'node:os';
 import {applyDamage,setPowers} from './combat.mjs';
@@ -15,9 +16,9 @@ const allowedOrigins=new Set((process.env.ALLOWED_ORIGINS||'').split(',').map(s=
 function isAdmin(value){const expires=adminSessions.get(value);return expires>Date.now();}
 function json(res,value,status=200){res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(value));}
 const rooms=new Map(),sessions=new Map(),skeetRanges=new Map(),wallWorlds=new Map(),bullets=[];
-const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0,vx:0,vz:0});
+const spawn=()=>{let x,z;do{x=(Math.random()-.5)*36;z=(Math.random()-.5)*36;}while(x>-17&&x<-9&&z>0&&z<7);return {x,z,y:0,vy:0,vx:0,vz:0};};
 const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-function publicPlayer(p){const {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun,mods,powers}=p;return {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun,mods,powers};}
+function publicPlayer(p){const {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun,mods,powers,beans,ownedAmmo}=p;return {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun,mods,powers,beans,ownedAmmo};}
 function broadcast(room,event,data){for(const p of room.values())if(p.stream)send(p.stream,event,data);}
 function remove(p){p.stream?.end();sessions.delete(p.token);const room=rooms.get(p.room);room?.delete(p.id);if(!room?.size){rooms.delete(p.room);skeetRanges.delete(p.room);wallWorlds.delete(p.room);}}
 const server=http.createServer(async(req,res)=>{
@@ -70,14 +71,22 @@ const server=http.createServer(async(req,res)=>{
    if(sessions.size>=128&&!previous){res.writeHead(503).end('Server full');return;}
    if(!rooms.has(key)){rooms.set(key,new Map());skeetRanges.set(key,createSkeetRange());wallWorlds.set(key,createVoxelWalls());}const room=rooms.get(key);
    if(room.size>=12&&previous?.room!==key){res.writeHead(409).end('Room full (12 players)');return;}
-   const p={id:randomUUID(),token:randomUUID(),room:key,name,...spawn(),yaw:0,pitch:0,gunYaw:0,gunPitch:0,hp:100,ammo:6,weapon:'revolver',hasShotgun:false,mods:{revolver:'standard',shotgun:'standard'},ammoByWeapon:{revolver:6,shotgun:2},kills:0,deaths:0,reloadUntil:0,deadUntil:0,lastShot:0,lastSeen:Date.now(),powers:{noRecoil:false,infiniteAmmo:false,infiniteHp:false},input:{},color:[0xc17a47,0x658c91,0x96799c,0x879466][room.size%4]};room.set(p.id,p);sessions.set(p.token,p);if(previous){if(isAdmin(data.adminToken))setPowers(p,previous.powers);remove(previous);}
+   const p={id:randomUUID(),token:randomUUID(),room:key,name,...spawn(),...createWallet(),yaw:0,pitch:0,gunYaw:0,gunPitch:0,hp:100,ammo:6,weapon:'revolver',hasShotgun:false,mods:{revolver:'standard',shotgun:'standard'},ammoByWeapon:{revolver:6,shotgun:2},kills:0,deaths:0,reloadUntil:0,deadUntil:0,lastShot:0,lastSeen:Date.now(),powers:{noRecoil:false,infiniteAmmo:false,infiniteHp:false},input:{},color:[0xc17a47,0x658c91,0x96799c,0x879466][room.size%4]};room.set(p.id,p);sessions.set(p.token,p);if(previous){if(isAdmin(data.adminToken))setPowers(p,previous.powers);remove(previous);}
    res.setHeader('Content-Type','application/json');res.end(JSON.stringify({token:p.token,id:p.id,room:key}));return;
   }
   const p=sessions.get(data.token);if(!p){res.writeHead(401).end();return;}p.lastSeen=Date.now();const now=Date.now(),room=rooms.get(p.room);
   if(url.pathname==='/api/input'){p.input={x:data.x,z:data.z,yaw:data.yaw,pitch:data.pitch,jump:!!data.jump,active:data.active===true};p.gunYaw=Number.isFinite(data.gunYaw)?data.gunYaw:p.yaw;p.gunPitch=Math.max(-1.35,Math.min(1.35,Number.isFinite(data.gunPitch)?data.gunPitch:p.pitch));}
   else if(url.pathname==='/api/leave'){remove(p);res.writeHead(204).end();return;}
   else if(url.pathname==='/api/resetWalls'){wallWorlds.get(p.room).reset();broadcast(room,'wallReset',{});}
-  else if(url.pathname==='/api/modify'&&p.hp>0&&!p.reloadUntil&&Object.hasOwn(AMMO_MODS[p.weapon],data.mod)){p.mods[p.weapon]=data.mod;p.ammo=ammoProfile(p.weapon,p.mods).capacity;p.ammoByWeapon[p.weapon]=p.ammo;res.setHeader('Content-Type','application/json');res.end(JSON.stringify(publicPlayer(p)));return;}
+  else if(url.pathname==='/api/buy'){
+   const result=purchaseAmmo(p,data.weapon,data.mod,data.yaw,data.pitch);
+   if(!result.ok){res.writeHead(403).end(result.message);return;}
+   json(res,{player:{...publicPlayer(p),ammoByWeapon:p.ammoByWeapon},message:result.message,time:now});return;
+  }
+  else if(url.pathname==='/api/modify'){
+   if(!canShop(p)||!ownsAmmo(p,p.weapon,data.mod)||!Object.hasOwn(AMMO_MODS[p.weapon],data.mod)){res.writeHead(403).end('Buy ammo at GUNZ.');return;}
+   purchaseAmmo(p,p.weapon,data.mod);json(res,publicPlayer(p));return;
+  }
   else if(url.pathname==='/api/launch'&&p.hp>0)skeetRanges.get(p.room).launch(now);
   else if(url.pathname==='/api/pickup'&&!p.hasShotgun&&canPickUpShotgun(p,data.yaw,data.pitch)){p.hasShotgun=true;p.ammoByWeapon[p.weapon]=p.ammo;p.weapon='shotgun';p.ammo=p.ammoByWeapon.shotgun;}
   else if(url.pathname==='/api/equip'&&Object.hasOwn(WEAPONS,data.weapon)&&(data.weapon!=='shotgun'||p.hasShotgun)&&p.hp>0&&!p.reloadUntil){p.ammoByWeapon[p.weapon]=p.ammo;p.weapon=data.weapon;p.ammo=p.ammoByWeapon[p.weapon];}
@@ -104,7 +113,7 @@ const server=http.createServer(async(req,res)=>{
   p.stream?.end();res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'});res.write(': connected\n\n');p.stream=res;send(res,'wallState',wallWorlds.get(p.room).snapshot());
   req.on('close',()=>{if(p.stream===res)p.stream=null;});return;
  }
- const files={'/can-wounds.js':'can-wounds.js','/can-physics.js':'can-physics.js','/food-geometry.js':'food-geometry.js','/food-splats.js':'food-splats.js','/projectile-physics.mjs':'projectile-physics.mjs','/can-characters.js':'can-characters.js','/bootstrap.js':'bootstrap.js','/combat.mjs':'combat.mjs','/menu.js':'menu.js','/runtime-config.js':'runtime-config.js','/voxel-walls.mjs':'voxel-walls.mjs','/voxel-wall-view.js':'voxel-wall-view.js','/':'index.html','/index.html':'index.html','/game.js':'game.js','/game-loop.js':'game-loop.js','/render-batches.js':'render-batches.js','/weapon-pose.js':'weapon-pose.js','/weapon-audio.js':'weapon-audio.js','/simulation.mjs':'simulation.mjs','/skeet.mjs':'skeet.mjs','/skeet-view.js':'skeet-view.js','/weapons.mjs':'weapons.mjs','/shotgun-view.js':'shotgun-view.js','/shell-physics.js':'shell-physics.js','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
+ const files={'/shop.mjs':'shop.mjs','/shop-view.js':'shop-view.js','/shop-ui.js':'shop-ui.js','/can-wounds.js':'can-wounds.js','/can-physics.js':'can-physics.js','/food-geometry.js':'food-geometry.js','/food-splats.js':'food-splats.js','/projectile-physics.mjs':'projectile-physics.mjs','/can-characters.js':'can-characters.js','/bootstrap.js':'bootstrap.js','/combat.mjs':'combat.mjs','/menu.js':'menu.js','/runtime-config.js':'runtime-config.js','/voxel-walls.mjs':'voxel-walls.mjs','/voxel-wall-view.js':'voxel-wall-view.js','/':'index.html','/index.html':'index.html','/game.js':'game.js','/game-loop.js':'game-loop.js','/render-batches.js':'render-batches.js','/weapon-pose.js':'weapon-pose.js','/weapon-audio.js':'weapon-audio.js','/simulation.mjs':'simulation.mjs','/skeet.mjs':'skeet.mjs','/skeet-view.js':'skeet-view.js','/weapons.mjs':'weapons.mjs','/shotgun-view.js':'shotgun-view.js','/shell-physics.js':'shell-physics.js','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
  for(const i of [1,2,3])files['/assets/audio/revolver-'+i+'.wav']='assets/audio/revolver-'+i+'.wav';
  const file=files[url.pathname];if(!file||req.method!=='GET'){res.writeHead(404).end('Not found');return;}
  res.setHeader('Cache-Control','no-store');
@@ -125,6 +134,7 @@ setInterval(()=>{const now=Date.now();for(let i=bullets.length-1;i>=0;i--)if(!ro
    for(const change of result.wallChanges)broadcast(room,'wallDamage',change);
    if(result.clayId){const broken=range.breakClay(result.clayId,now,bullet.direction);if(broken)broadcast(room,'clayBreak',broken);}
    const victim=room.get(result.hit);if(victim){const killed=applyDamage(victim,result.headshot?bullet.profile.headDamage:bullet.profile.damage,now);const shooter=room.get(bullet.shooter);if(killed&&shooter)shooter.kills++;result.killed=killed;}
+   const earner=room.get(bullet.shooter);if(earner)awardBeans(earner,result);
    broadcast(room,'impact',result);
   }
   if(!bullet.alive)bullets.splice(i,1);

@@ -1,3 +1,4 @@
+import {SHOP_SOLIDS,collideShop} from './shop.mjs';
 import {LAUNCHER,clayHit} from './skeet.mjs';
 export const LIMIT=27, SPEED=4.5;
 export const TRAINING_TARGETS=[-4,0,4].map((x,i)=>({id:`target-${i}`,x,y:1.6,z:0,radius:.55}));
@@ -42,7 +43,7 @@ export function settlePrediction(position,error,dt){
  const dx=position.correctionVX*dt,dz=position.correctionVZ*dt;
  position.x+=dx;position.z+=dz;error.x-=dx;error.z-=dz;
 }
-const arenaBoxes=[{x:0,y:-.26,z:0,w:56,h:.5,d:56}];
+const arenaBoxes=[...SHOP_SOLIDS,{x:0,y:-.26,z:0,w:56,h:.5,d:56}];
 arenaBoxes.push({x:LAUNCHER.x,y:.3,z:LAUNCHER.z,w:1,h:.6,d:1.1});
 for(const side of [-1,1]){
  arenaBoxes.push({x:0,y:.08,z:side*27.8,w:56,h:.16,d:.18},{x:side*27.8,y:.08,z:0,w:.18,h:.16,d:56});
@@ -75,6 +76,7 @@ export function traceShot(origin,direction,players=[],clays=[],walls=null){
  return {...(voxel?{wallId:voxel.wallId,cell:voxel.cell}:{}),distance,hit,targetId,clayId,surface,normal,headshot:surface==='player'&&headshot,point:{x:origin.x+direction.x*distance,y:origin.y+direction.y*distance,z:origin.z+direction.z*distance}};
 }
 export function move(p,input,dt){
+ const shopOld={x:p.x,z:p.z};
  const x=Math.max(-1,Math.min(1,Number(input.x)||0)),z=Math.max(-1,Math.min(1,Number(input.z)||0));
  const len=Math.max(1,Math.hypot(x,z));
  p.yaw=Number.isFinite(input.yaw)?input.yaw:p.yaw;p.pitch=Math.max(-1.35,Math.min(1.35,Number(input.pitch)||0));
@@ -87,7 +89,7 @@ export function move(p,input,dt){
  p.x=Math.max(-LIMIT,Math.min(LIMIT,nextX));p.z=Math.max(-LIMIT,Math.min(LIMIT,nextZ));
  if(p.x!==nextX)p.vx=0;if(p.z!==nextZ)p.vz=0;
  if(input.jump&&p.y===0)p.vy=5;
- p.vy=Number.isFinite(p.vy)?p.vy:0;p.y=Math.max(0,p.y+p.vy*dt-7.5*dt*dt);p.vy-=15*dt;if(p.y===0)p.vy=0;
+ p.vy=Number.isFinite(p.vy)?p.vy:0;p.y=Math.max(0,p.y+p.vy*dt-7.5*dt*dt);p.vy-=15*dt;if(p.y===0)p.vy=0;collideShop(p,shopOld);
 }
 export function rayHit(origin,direction,target){
  // Closed can cylinder, matching the visible flat lid and base.

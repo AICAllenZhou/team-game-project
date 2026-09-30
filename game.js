@@ -1,3 +1,6 @@
+import {createWallet,restoreWallet,canShop,awardBeans,purchaseAmmo} from './shop.mjs';
+import {createShopView} from './shop-view.js';
+import {createShopMenu} from './shop-ui.js';
 import {createCanCharacter,createCanEffects,resetCan} from './can-characters.js';
 import {launchProjectile,advanceProjectile} from './projectile-physics.mjs';
 import {createMenu} from './menu.js';
@@ -139,12 +142,16 @@ for(const target of TRAINING_TARGETS){
  box(.1,1.05,.1,steel,scenery,target.x,.525,target.z);box(.8,.08,.6,wood,scenery,target.x,.04,target.z);
  targets.set(target.id,{group:g,face,hitAt:-100});
 }
+createShopView(scenery);
 batchMeshes(scenery);
 scenery.updateWorldMatrix(true,true);
 scenery.traverse(object=>{object.matrixAutoUpdate=false;object.matrixWorldAutoUpdate=false;});
 const dummies=[cowboy(0xa57450,0),cowboy(0x6b9290,1),cowboy(0x9d7b8f,2)];dummies.forEach((g,i)=>g.position.set((i-1)*5,0,-9-Math.abs(i-1)*3));
 let menu,hasJoined=false,currentRoom='frontier';
 let token=null,id=null,events=null,online=false,joining=false,local={x:0,y:0,z:8,vy:0,hp:100,ammo:6},yaw=0,pitch=0,freeX=0,freeY=0,gunYaw=0,gunPitch=0,lastShot=-Infinity,reloading=0,last=0,lastAimFrame=0,started=0,serverTime=0,receivedAt=0;
+Object.assign(local,createWallet());try{Object.assign(local,restoreWallet(JSON.parse(localStorage.getItem('dustline_beans_v1'))));}catch{}
+let walletSavePending=false;
+function saveWallet(){if(online||walletSavePending)return;walletSavePending=true;queueMicrotask(()=>{walletSavePending=false;if(!online)try{localStorage.setItem('dustline_beans_v1',JSON.stringify({beans:local.beans,ownedAmmo:local.ownedAmmo}));}catch{}});}
 const keys=new Set(),peers=new Map(),projectiles=[];let audio;
 const pendingShots=new Map();let shotSequence=0,barrelHeat=0;
 let displayedAim=null,frozenAim=null,lastClick=-Infinity,queuedFanClick=false;
@@ -169,23 +176,21 @@ const glowMaterial=new THREE.MeshBasicMaterial({color:0xffb744,transparent:true,
 const pelletMesh=new THREE.InstancedMesh(new THREE.CapsuleGeometry(.017,.28,2,5),new THREE.MeshBasicMaterial({color:0xffffdf}),384),pelletMatrix=new THREE.Matrix4(),pelletRotation=new THREE.Quaternion(),pelletUp=new THREE.Vector3(0,1,0),pelletScale=new THREE.Vector3(1,1,1);pelletMesh.count=0;pelletMesh.frustumCulled=false;pelletMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(pelletMesh);
 const ammoByWeapon={revolver:6,shotgun:2};let lastShotWeapon='revolver';
 function showWeapon(next){if(next===weapon)return;weapon=next;focusHeld=false;gun=weapon==='shotgun'?shotgunGun:revolverGun;revolverGun.visible=weapon==='revolver';shotgunGun.visible=weapon==='shotgun';displayedAim=frozenAim=null;queuedFanClick=false;shotExposure.energy=shotExposure.visible=barrelHeat=0;wristSpring.angle=wristSpring.velocity=0;}
-function equip(next){if(!gameLoop.running||local.reloadUntil||reloading||next===weapon||(next==='shotgun'&&!local.hasShotgun))return;if(online)post('equip',{weapon:next}).catch(networkError);else{ammoByWeapon[weapon]=local.ammo;showWeapon(next);local.ammo=ammoByWeapon[next];}}
-const modifyPanel=document.createElement('div');modifyPanel.id='modify';modifyPanel.hidden=true;document.body.append(modifyPanel);
+function equip(next){if(!gameLoop.running||local.reloadUntil||reloading||next===weapon||(next==='shotgun'&&!local.hasShotgun))return;if(online)post('equip',{weapon:next}).catch(networkError);else{ammoByWeapon[weapon]=local.ammo;showWeapon(next);local.weapon=next;local.ammo=ammoByWeapon[next];}}
 const resetButton=document.createElement('button');resetButton.id='reset-walls';resetButton.textContent='Reset walls';document.body.append(resetButton);
 resetButton.onclick=()=>{if(online)post('resetWalls').catch(networkError);else{wallWorld.reset();wallView.update(0);renderScene();}};
-function closeModify(){modifyPanel.hidden=true;document.body.classList.remove('modifying');captureMouse().catch(()=>{});}
-function openModify(){
- if(local.hp<=0||reloading||local.reloadUntil)return;
- if(!modifyPanel.hidden){closeModify();return;}
- document.exitPointerLock();syncActivity(false);document.body.classList.add('modifying');modifyPanel.hidden=false;modifyPanel.replaceChildren();
- const title=document.createElement('h2');title.textContent=weapon==='shotgun'?'Modify shotgun':'Modify revolver';modifyPanel.append(title);
- for(const [key,profile] of Object.entries(AMMO_MODS[weapon])){const button=document.createElement('button');button.textContent=profile.label;button.setAttribute('aria-pressed',String((local.mods?.[weapon]||'standard')===key));button.onclick=async()=>{
-  for(const b of modifyPanel.querySelectorAll('button'))b.disabled=true;
-  try{if(online){const updated=await post('modify',{mod:key});local.mods=updated.mods;local.ammo=updated.ammo;pendingState=null;}else{local.mods={...local.mods,[weapon]:key};local.ammo=profile.capacity;}ammoByWeapon[weapon]=local.ammo;closeModify();}catch(e){networkError(e);modifyPanel.hidden=true;document.body.classList.remove('modifying');}
- };modifyPanel.append(button);}
- const close=document.createElement('button');close.textContent='Back';close.onclick=closeModify;modifyPanel.append(close);
-}
-window.addEventListener('keydown',e=>{if(e.code==='KeyB'&&!e.repeat&&(document.pointerLockElement||!modifyPanel.hidden)){e.preventDefault();openModify();}});
+const shopPrompt=document.createElement('div');shopPrompt.id='shop-prompt';shopPrompt.textContent='E · GUNZ';shopPrompt.hidden=true;document.body.append(shopPrompt);
+const shopMenu=createShopMenu({getPlayer:()=>local,onClose:()=>captureMouse().catch(()=>syncActivity(false)),buy:async item=>{
+ let result;
+ if(online){const updated=await post('buy',{weapon:item.weapon,mod:item.mod,yaw,pitch});Object.assign(local,{beans:updated.player.beans,ownedAmmo:updated.player.ownedAmmo,mods:updated.player.mods,ammo:updated.player.ammo,ammoByWeapon:updated.player.ammoByWeapon});serverTime=Math.max(serverTime,updated.time);pendingState=null;result={ok:true,message:updated.message};}
+ else{local.weapon=weapon;local.ammoByWeapon=ammoByWeapon;result=purchaseAmmo(local,item.weapon,item.mod,yaw,pitch);saveWallet();}
+ Object.assign(ammoByWeapon,local.ammoByWeapon);return result;
+}});
+window.addEventListener('keydown',e=>{
+ if(e.code==='KeyE'&&!e.repeat&&gameLoop.running&&!reloading&&canShop(online&&predictionReady?{...local,...predicted}:local,yaw,pitch)){
+  e.preventDefault();document.exitPointerLock();syncActivity(false);shopPrompt.hidden=true;shopMenu.open();
+ }
+});
 let focusHeld=false,focusBlend=0;
 let lookYaw=0,lookPitch=0,handYaw=0,handPitch=0,previousFreeX=0,previousFreeY=0;
 const wristSpring={angle:0,velocity:0};let wristTwist=0,flashLife=0;
@@ -206,6 +211,7 @@ function captureAim(){const {origin,direction}=captureBarrelRay(gun);
 function projectileImpact(result,projectile=null){
  const now=gameLoop.now();
  if(!online&&result.hit){const victim=practiceCandidates.find(p=>p.id===result.hit);if(victim){const profile=projectile.profile;result.killed=applyDamage(victim,result.headshot?profile.headDamage:profile.damage,now);}}
+ if(!online&&awardBeans(local,result))saveWallet();
  if(result.hit){const index=practiceCandidates.findIndex(p=>p.id===result.hit),character=online?peers.get(result.hit):dummies[index];if(character)canEffects.hit(character,result);}
  for(const change of result.wallChanges||[])if(!online)wallView.burst(change.wallId,change.removed);
  impactEffect(result,now);
@@ -262,7 +268,7 @@ async function playGame(options={}){
  clearInterval(inputTimer);clearInterval(idleTimer);pendingState=null;predictionReady=false;serverTime=0;reloading=0;
  for(const g of peers.values()){scene.remove(g);canEffects.remove(g);}peers.clear();shotCandidates.length=0;
  for(const p of projectiles)if(p.round)scene.remove(p.round);projectiles.length=0;pendingShots.clear();serverClays=[];wallWorld.reset();
- token=data.token;id=data.id;currentRoom=data.room;online=true;menu?.setMode('online');events=new EventSource(API_BASE+'/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>{const state=JSON.parse(e.data);if(gameLoop.running)applyState(state);else pendingState=state;});events.addEventListener('wallReset',()=>{wallWorld.reset();wallView.update(0);if(!gameLoop.running)renderScene();});events.addEventListener('wallState',e=>JSON.parse(e.data).forEach((removed,i)=>wallWorld.apply(i,removed)));events.addEventListener('wallDamage',e=>{const d=JSON.parse(e.data);wallWorld.apply(d.wallId,d.removed);if(gameLoop.running)wallView.burst(d.wallId,d.removed);});events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));events.addEventListener('impact',e=>{const result=JSON.parse(e.data);if(!gameLoop.running)return;projectileImpact(result);if(result.stopped||(!result.penetrated&&result.surface!=='voxel'))for(const p of projectiles)if(p.result.id===result.shooter&&p.result.shotId===result.shotId)p.physics.alive=false;});events.addEventListener('clayBreak',e=>{const broken=JSON.parse(e.data);serverClays=serverClays.filter(f=>f.id!==broken.id);if(gameLoop.running)skeetView.shatter(broken,gameLoop.now());});dummies.forEach(g=>g.visible=false);}
+ token=data.token;id=data.id;currentRoom=data.room;online=true;menu?.setMode('online');events=new EventSource(API_BASE+'/api/events?token='+encodeURIComponent(token));events.addEventListener('state',e=>{const state=JSON.parse(e.data);if(gameLoop.running)applyState(state);else if(shopMenu.opened){const before=local.beans;applyState(state);if(local.hp<=0)shopMenu.close();else if(before!==local.beans)shopMenu.refresh();}else pendingState=state;});events.addEventListener('wallReset',()=>{wallWorld.reset();wallView.update(0);if(!gameLoop.running)renderScene();});events.addEventListener('wallState',e=>JSON.parse(e.data).forEach((removed,i)=>wallWorld.apply(i,removed)));events.addEventListener('wallDamage',e=>{const d=JSON.parse(e.data);wallWorld.apply(d.wallId,d.removed);if(gameLoop.running)wallView.burst(d.wallId,d.removed);});events.addEventListener('shot',e=>shotEffect(JSON.parse(e.data)));events.addEventListener('impact',e=>{const result=JSON.parse(e.data);if(!gameLoop.running)return;projectileImpact(result);if(result.stopped||(!result.penetrated&&result.surface!=='voxel'))for(const p of projectiles)if(p.result.id===result.shooter&&p.result.shotId===result.shotId)p.physics.alive=false;});events.addEventListener('clayBreak',e=>{const broken=JSON.parse(e.data);serverClays=serverClays.filter(f=>f.id!==broken.id);if(gameLoop.running)skeetView.shatter(broken,gameLoop.now());});dummies.forEach(g=>g.visible=false);}
  }catch(e){joinError('Could not join: '+e.message);joining=false;$('play').disabled=false;throw e;}joining=false;$('play').disabled=false;}
  hasJoined=true;menu?.sessionChanged();
  try{await captureMouse();}catch{joinError('Click Resume game to capture the mouse.');syncActivity(false);}
@@ -328,7 +334,7 @@ function sendInput(active=gameLoop.running){
 function syncActivity(allowRun=true){
  if(!renderReady)return;
  const active=allowRun!==false&&!document.hidden&&document.hasFocus()&&document.pointerLockElement===$('game');
- document.body.classList.toggle('playing',active);keys.clear();focusHeld=false;queuedFanClick=false;lastClick=-Infinity;
+ document.body.classList.toggle('playing',active);if(!active)shopPrompt.hidden=true;keys.clear();focusHeld=false;queuedFanClick=false;lastClick=-Infinity;
  clearInterval(inputTimer);clearInterval(idleTimer);inputTimer=idleTimer=null;
  if(active){
   if(pendingState){predictionReady=false;applyState(pendingState);pendingState=null;}
@@ -344,7 +350,8 @@ function syncActivity(allowRun=true){
 }
 function frame(now){
  if(!online)for(let i=0;i<practiceCandidates.length;i++){const p=practiceCandidates[i];if(p.hp<=0&&now>=p.deadUntil){p.hp=100;p.deadUntil=0;resetCan(dummies[i]);dummies[i].position.set(p.x,p.y,p.z);}}
- if(hasJoined)$('hud').textContent=local.hp<=0?'Eliminated · Respawning…':`${local.name||'Player'} · ${online?currentRoom:'Practice'} · HP ${local.powers?.infiniteHp?'∞':local.hp} · Ammo ${local.powers?.infiniteAmmo?'∞':local.ammo}`;
+ if(hasJoined)$('hud').textContent=local.hp<=0?'Eliminated · Respawning…':`${local.name||'Player'} · ${online?currentRoom:'Practice'} · HP ${local.powers?.infiniteHp?'∞':local.hp} · Ammo ${local.powers?.infiniteAmmo?'∞':local.ammo} · ${local.beans||0} beans`;
+ shopPrompt.hidden=!canShop(online&&predictionReady?{...local,...predicted}:local,yaw,pitch)||!!reloading;
  const dt=Math.min((now-last)/1000,.05);last=now;const t=(now-started)/1000,locked=!!document.pointerLockElement;
  focusBlend+=(Number(focusHeld&&locked&&local.hp>0)-focusBlend)*(1-Math.exp(-12*dt));
  // Input gain uses the actual button state, never the animated focus blend.
