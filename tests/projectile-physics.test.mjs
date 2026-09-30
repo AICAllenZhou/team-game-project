@@ -38,3 +38,12 @@ test('penetrating rounds leave aligned exit points and can hit a second can',()=
  const bird=round(AMMO_MODS.shotgun.birdshot),birdHits=advanceProjectile(bird,.06,targets,[],null);assert.equal(birdHits.length,1);assert.equal(birdHits[0].exitPoint,undefined);assert.equal(bird.alive,false);
  assert.ok(hits[0].holeRadius>birdHits[0].holeRadius);
 });
+
+
+test('buckshot opens revolver-sized can holes without increasing its damage',()=>{
+ const target={id:'can',x:10,y:0,z:3,hp:100};
+ const hit=profile=>advanceProjectile(round(profile),.06,[target],[],null)[0];
+ assert.equal(hit(AMMO_MODS.shotgun.standard).holeRadius,hit(AMMO_MODS.revolver.standard).holeRadius);
+ assert.equal(AMMO_MODS.shotgun.standard.damage,12);
+ assert.ok(hit(AMMO_MODS.shotgun.birdshot).holeRadius<hit(AMMO_MODS.shotgun.standard).holeRadius);
+});

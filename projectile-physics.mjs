@@ -13,7 +13,7 @@ export function advanceProjectile(p,dt,players,clays,walls,{damageWalls=true}={}
   const hit=traceShot(p.position,p.direction,players.filter(target=>!p.pierced.includes(target.id)),clays,walls);
   if(!hit.surface||hit.distance>travel){shift(travel);break;}
   shift(Math.max(0,hit.distance));
-  const result={...hit,origin:{...p.origin},direction:{...p.direction},weapon:p.weapon,shotId:p.shotId,shooter:p.shooter,holeRadius:.012+.25*(p.profile.damage/100)**2,wallChanges:[]};
+  const result={...hit,origin:{...p.origin},direction:{...p.direction},weapon:p.weapon,shotId:p.shotId,shooter:p.shooter,holeRadius:p.profile.canHoleRadius??(.012+.25*(p.profile.damage/100)**2),wallChanges:[]};
   if(hit.surface==='voxel'&&damageWalls){
    const radius=p.penetration===p.profile.penetration?p.profile.chip:(p.profile.core??0);
    const removed=walls.damage(hit,radius,p.direction);result.wallChanges.push({wallId:hit.wallId,removed});

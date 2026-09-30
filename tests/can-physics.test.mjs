@@ -23,3 +23,15 @@ test('food geometry has distinct bean curves and tapered corn rather than shared
  assert.ok(bean.boundingBox.max.y+bean.boundingBox.min.y>.15);
  assert.ok(corn.boundingBox.min.y>=-.751);
 });
+
+
+test('loose lids settle flat from edge-on and tilted landings at different frame rates',async()=>{
+ const {stepCanLid}=await import('../can-physics.js');
+ for(const dt of [1/30,1/144])for(const tilt of [Math.PI/2,.5,2.4]){
+  const mesh=new THREE.Group();mesh.position.y=1;mesh.rotation.set(tilt,.7,.2);
+  const lid={mesh,vx:1,vy:-2,vz:.4,wx:5,wz:3};
+  for(let time=0;time<8;time+=dt)stepCanLid(lid,dt);
+  const up=new THREE.Vector3(0,1,0).applyQuaternion(mesh.quaternion);
+  assert.ok(Math.abs(up.y)>.999);assert.ok(mesh.position.y<.03);assert.ok(Math.hypot(lid.vx,lid.vz)<.01);
+ }
+});

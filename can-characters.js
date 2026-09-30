@@ -1,12 +1,14 @@
 import * as THREE from './vendor/three.module.js';
 import {createFoodGeometry} from './food-geometry.js';
-import {createCanBody,stepCanBody,placeCanBody} from './can-physics.js';
+import {createCanBody,stepCanBody,placeCanBody,stepCanLid} from './can-physics.js';
+import {cutCanSurface,woundRim} from './can-wounds.js';
 import {createFoodSplats} from './food-splats.js';
 
 const TYPES=[{name:'BAKED BEANS',sub:'FRONTIER PANTRY',color:0xa84026,food:0x8e4524,scale:[1,.65,.7]},
  {name:'TOMATO SOUP',sub:'RICH & HEARTY',color:0xb52f26,food:0xd64b24,scale:[1,.45,1]},
  {name:'SWEET CORN',sub:'GOLDEN KERNELS',color:0x62834a,food:0xf3c94d,scale:[.7,1,.65]}];
 const metal=new THREE.MeshStandardMaterial({color:0xaeb5b7,metalness:.8,roughness:.35,flatShading:true,side:THREE.DoubleSide});
+const rimMetal=metal.clone();rimMetal.flatShading=false;rimMetal.roughness=.48;
 const darkMetal=new THREE.MeshStandardMaterial({color:0x333b3b,metalness:.6,roughness:.6,side:THREE.BackSide});
 const temp=new THREE.Object3D(),color=new THREE.Color(),up=new THREE.Vector3(0,1,0),offset=new THREE.Vector3();
 
@@ -52,7 +54,7 @@ function cowboyHat(type){
 export function createCanCharacter(type=0){
  type=((type%3)+3)%3;const root=new THREE.Group(),body=new THREE.Group();body.position.y=.9;root.add(body);
  const shell=surface(type);body.add(shell);shell.castShadow=shell.receiveShadow=true;
- const interior=new THREE.Mesh(shell.geometry,darkMetal);interior.scale.set(.945,.98,.945);body.add(interior);
+ const interior=new THREE.Mesh(shell.geometry,darkMetal);interior.scale.set(.995,1,.995);body.add(interior);
  for(const y of [-.88,.88])ring(.414,.023,y,body);
  for(const y of [-.76,-.71,.71,.76])ring(.416,.006,y,body);
  const bottom=new THREE.Mesh(new THREE.RingGeometry(0,.405,48,16).toNonIndexed(),metal);bottom.rotation.x=Math.PI/2;bottom.position.y=-.885;body.add(bottom);
@@ -61,7 +63,7 @@ export function createCanCharacter(type=0){
  const tab=new THREE.Mesh(new THREE.TorusGeometry(.075,.012,4,10),metal);tab.rotation.x=Math.PI/2;tab.scale.z=.6;tab.position.set(0,.032,-.08);lid.add(tab);
  const sauce=new THREE.Mesh(new THREE.CylinderGeometry(.386,.386,1.65,32),new THREE.MeshStandardMaterial({color:TYPES[type].food,roughness:.23,metalness:0}));sauce.position.y=-.055;body.add(sauce);
  const hat=cowboyHat(type);hat.position.y=.97;body.add(hat);
- Object.assign(root.userData,{hat,fill:1,sauce,leaks:[],canType:type,body,shell,baseGeometry:shell.geometry.clone(),capTop:top,capBottom:bottom,baseTop:top.geometry.clone(),baseBottom:bottom.geometry.clone(),lid,holes:[],tears:[],ragdoll:null});return root;
+ Object.assign(root.userData,{hat,fill:1,sauce,leaks:[],canType:type,body,shell,interior,baseGeometry:shell.geometry.clone(),capTop:top,capBottom:bottom,baseTop:top.geometry.clone(),baseBottom:bottom.geometry.clone(),lid,holes:[],dirtySurfaces:new Set(),tears:[],ragdoll:null});return root;
 }
 
 function puncture(root,point,direction,radius=.075){
@@ -70,33 +72,20 @@ function puncture(root,point,direction,radius=.075){
  const surface=local.y>.87?1:local.y<-.87?2:0,cap=surface===1?data.capTop:surface===2?data.capBottom:null;
  const length=Math.hypot(local.x,local.z);if(!cap){if(length<.01)return;local.x*=.422/length;local.z*=.422/length;local.y=THREE.MathUtils.clamp(local.y,-.85,.85);}
  const cutPoint=cap?cap.worldToLocal(new THREE.Vector3(point.x,point.y,point.z)):local.clone();if(cap)cutPoint.z=0;
- const base=surface===1?data.baseTop:surface===2?data.baseBottom:data.baseGeometry,positions=base.attributes.position;
- let nearest=0,best=Infinity;
- for(let i=0;i<positions.count;i+=3){const x=(positions.getX(i)+positions.getX(i+1)+positions.getX(i+2))/3,y=(positions.getY(i)+positions.getY(i+1)+positions.getY(i+2))/3,z=(positions.getZ(i)+positions.getZ(i+1)+positions.getZ(i+2))/3,d=(x-cutPoint.x)**2+(y-cutPoint.y)**2+(z-cutPoint.z)**2;if(d<best){best=d;nearest=i;}}
- data.holes.push({point:local.clone(),radius,nearest,cutPoint,surface});data.leaks.push({point:local.clone(),radius,clock:0});
- const indices=[];
- for(let i=0;i<positions.count;i+=3){
-  const x=(positions.getX(i)+positions.getX(i+1)+positions.getX(i+2))/3,y=(positions.getY(i)+positions.getY(i+1)+positions.getY(i+2))/3,z=(positions.getZ(i)+positions.getZ(i+1)+positions.getZ(i+2))/3;
-  if(!data.holes.some(h=>h.surface===surface&&(i===h.nearest||(x-h.cutPoint.x)**2+(y-h.cutPoint.y)**2+(z-h.cutPoint.z)**2<h.radius*h.radius)))indices.push(i,i+1,i+2);
- }
- (cap||data.shell).geometry.setIndex(indices);
+ data.holes.push({point:local.clone(),radius,cutPoint,surface});data.leaks.push({point:local.clone(),radius,clock:0});data.dirtySurfaces.add(surface);
  const normal=cap?new THREE.Vector3(0,surface===1?1:-1,0):new THREE.Vector3(local.x,0,local.z).normalize(),tear=new THREE.Group();tear.position.copy(local);tear.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),normal);
- const vertices=[];
- for(let i=0;i<10;i++){const a=i*Math.PI/5,b=(i+1)*Math.PI/5,r=radius*(.7+.2*Math.sin(i*7));
-  vertices.push(Math.cos(a)*r,Math.sin(a)*r,.012,Math.cos(b)*radius,Math.sin(b)*radius,.005,Math.cos(a+.2)*radius*1.35,Math.sin(a+.2)*radius*1.35,.025+(i%3)*.015);
- }
- const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.computeVertexNormals();tear.add(new THREE.Mesh(geometry,metal));data.body.add(tear);data.tears.push(tear);
+ tear.add(new THREE.Mesh(woundRim(radius,!cap),rimMetal));data.body.add(tear);data.tears.push(tear);
 }
 
 export function resetCan(root){
- const d=root.userData;root.rotation.set(0,0,0);d.ragdoll=null;d.fill=1;d.leaks=[];d.sauce.scale.y=1;d.sauce.position.y=-.055;d.holes=[];d.shell.geometry.setIndex(null);d.capTop.geometry.setIndex(null);d.capBottom.geometry.setIndex(null);d.lid.rotation.set(0,0,0);d.rightHand?.rotation.set(0,0,0);d.lid.visible=true;d.hat.visible=true;if(d.rightHand)d.rightHand.visible=true;
+ const d=root.userData;root.rotation.set(0,0,0);d.ragdoll=null;d.fill=1;d.leaks=[];d.sauce.scale.y=1;d.sauce.position.y=-.055;d.holes=[];d.dirtySurfaces.clear();for(const [mesh,base] of [[d.shell,d.baseGeometry],[d.capTop,d.baseTop],[d.capBottom,d.baseBottom]]){mesh.geometry.dispose();mesh.geometry=base.clone();}d.interior.geometry=d.shell.geometry;d.lid.rotation.set(0,0,0);d.rightHand?.rotation.set(0,0,0);d.lid.visible=true;d.hat.visible=true;if(d.rightHand)d.rightHand.visible=true;
  for(const tear of d.tears){tear.traverse(m=>m.geometry?.dispose());d.body.remove(tear);}d.tears=[];root.visible=true;
 }
 
 export function createCanEffects(scene){
  const splats=createFoodSplats(scene),lids=[];
  const capacity=400,items=[],meshes=[0,1,2,3,4].map(type=>{const mesh=new THREE.InstancedMesh(createFoodGeometry(type===4?1:type),new THREE.MeshStandardMaterial({roughness:type===3?.5:.32,flatShading:false}),capacity);mesh.name='can-food-pieces-'+type;mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);mesh.count=0;mesh.frustumCulled=false;scene.add(mesh);return mesh;});
- const leaking=new Set();
+ const leaking=new Set(),damaged=new Set();
  const bodies=new Set();
  function spill(root,point,direction,count){const type=TYPES[root.userData.canType];
   for(let i=0;i<count;i++){if(items.length>=capacity)items.shift();const scrap=i%7===0,size=scrap?.045:.085+Math.random()*.035;
@@ -104,12 +93,14 @@ export function createCanEffects(scene){
   }
  }
  function hit(root,result){
-  const radius=result.holeRadius??.075;puncture(root,result.point,result.direction,radius);if(result.exitPoint)puncture(root,result.exitPoint,result.direction,radius*1.15);leaking.add(root);spill(root,result.point,result.direction,Math.min(32,Math.max(3,Math.round(radius*100))));
+  damaged.add(root);const radius=result.holeRadius??.075;puncture(root,result.point,result.direction,radius);if(result.exitPoint)puncture(root,result.exitPoint,result.direction,radius*1.15);leaking.add(root);spill(root,result.point,result.direction,Math.min(32,Math.max(3,Math.round(radius*100))));
   if(result.killed)kill(root,result.direction,result.point);
  }
  function kill(root,direction={x:0,y:0,z:-1},point=null){
   if(root.userData.ragdoll)return;
   const data=root.userData;if(data.rightHand)data.rightHand.visible=false;
+  // Preserve a final top hit on the detached lid before its geometry is cloned.
+  if(data.dirtySurfaces.delete(1)){const old=data.capTop.geometry;data.capTop.geometry=cutCanSurface(data.baseTop,data.holes.filter(h=>h.surface===1));old.dispose();}
   root.updateWorldMatrix(true,true);const lid=data.lid.clone(true);lid.name='ejected-can-lid';lid.traverse(m=>{if(m.geometry)m.geometry=m.geometry.clone();});data.lid.getWorldPosition(lid.position);data.lid.getWorldQuaternion(lid.quaternion);scene.add(lid);data.lid.visible=false;
   while(lids.length>=23){const oldest=lids.shift();scene.remove(oldest.mesh);oldest.mesh.traverse(m=>m.geometry?.dispose());}
   const hat=data.hat.clone(true);hat.name='fallen-cowboy-hat';hat.traverse(m=>{if(m.geometry)m.geometry=m.geometry.clone();});data.hat.getWorldPosition(hat.position);data.hat.getWorldQuaternion(hat.quaternion);scene.add(hat);data.hat.visible=false;lids.push({mesh:hat,radius:.64,vx:direction.x,vy:2.2,vz:direction.z,wx:2,wz:1,life:8});
@@ -117,6 +108,12 @@ export function createCanEffects(scene){
   root.visible=true;root.userData.ragdoll=createCanBody(root.position,root.quaternion,direction,point,data.fill);bodies.add(root);
  }
  function update(dt){
+  // All pellets arriving this frame share one geometry rebuild per surface.
+  for(const root of damaged){const d=root.userData;
+   for(const surface of d.dirtySurfaces){const mesh=surface===1?d.capTop:surface===2?d.capBottom:d.shell,base=surface===1?d.baseTop:surface===2?d.baseBottom:d.baseGeometry,old=mesh.geometry;
+    mesh.geometry=cutCanSurface(base,d.holes.filter(h=>h.surface===surface));if(!surface)d.interior.geometry=mesh.geometry;old.dispose();
+   }d.dirtySurfaces.clear();
+  }damaged.clear();
   for(const root of bodies){const p=root.userData.ragdoll;if(!p){bodies.delete(root);continue;}const com=.9-.1*root.userData.fill;p.position.addScaledVector(up.set(0,1,0).applyQuaternion(p.quaternion),com-p.com);p.com=com;stepCanBody(p,dt);placeCanBody(root,p);}
   for(const root of leaking){const d=root.userData;if(!d.leaks.length||d.fill<=.01){leaking.delete(root);continue;}
    root.updateWorldMatrix(true,true);
@@ -132,11 +129,7 @@ export function createCanEffects(scene){
   }
   for(let i=lids.length-1;i>=0;i--){const p=lids[i];p.life-=dt;
    if(p.life<=0){scene.remove(p.mesh);p.mesh.traverse(m=>m.geometry?.dispose());lids.splice(i,1);continue;}
-   const steps=Math.max(1,Math.ceil(dt*120)),h=dt/steps;
-   for(let j=0;j<steps;j++){p.vy-=9.81*h;p.mesh.position.x+=p.vx*h;p.mesh.position.y+=p.vy*h;p.mesh.position.z+=p.vz*h;p.mesh.rotation.x+=p.wx*h;p.mesh.rotation.z+=p.wz*h;
-    up.set(0,1,0).applyQuaternion(p.mesh.quaternion);const support=(p.radius??.405)*Math.sqrt(Math.max(0,1-up.y*up.y))+.025*Math.abs(up.y);
-    if(p.mesh.position.y<support){p.mesh.position.y=support;p.vy=Math.abs(p.vy)>.4?-p.vy*.3:0;const friction=Math.exp(-5*h);p.vx*=friction;p.vz*=friction;p.wx*=friction;p.wz*=friction;}
-   }
+   stepCanLid(p,dt);
   }
   splats.update(dt);
   for(const mesh of meshes)mesh.count=0;
@@ -147,5 +140,5 @@ export function createCanEffects(scene){
   }
   for(const mesh of meshes)if(mesh.count){mesh.instanceMatrix.needsUpdate=true;mesh.instanceColor.needsUpdate=true;}
  }
- return {hit,kill,update,remove(root){bodies.delete(root);leaking.delete(root);root.traverse(m=>m.geometry?.dispose());root.userData.baseGeometry.dispose();root.userData.baseTop.dispose();root.userData.baseBottom.dispose();}};
+ return {hit,kill,update,remove(root){damaged.delete(root);bodies.delete(root);leaking.delete(root);root.traverse(m=>m.geometry?.dispose());root.userData.baseGeometry.dispose();root.userData.baseTop.dispose();root.userData.baseBottom.dispose();}};
 }

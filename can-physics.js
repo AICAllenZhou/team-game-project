@@ -35,3 +35,27 @@ export function stepCanBody(p,dt){
  p.age+=dt;return p;
 }
 export function placeCanBody(root,p){root.quaternion.copy(p.quaternion);root.position.copy(p.position).sub(axis.set(0,p.com,0).applyQuaternion(p.quaternion));}
+
+// A thin disc cannot rest on its edge: once the bounce ends, gravity tips it
+// toward the closest face while floor friction damps the remaining spin.
+const lidNormal=new THREE.Vector3();
+export function stepCanLid(p,dt){
+ const steps=Math.max(1,Math.ceil(dt*120)),h=dt/steps;
+ const support=()=>{axis.set(0,1,0).applyQuaternion(p.mesh.quaternion);return (p.radius??.405)*Math.sqrt(Math.max(0,1-axis.y*axis.y))+.025*Math.abs(axis.y);};
+ for(let i=0;i<steps;i++){
+  p.vy-=9.81*h;p.mesh.position.x+=p.vx*h;p.mesh.position.y+=p.vy*h;p.mesh.position.z+=p.vz*h;
+  if(!p.settling){p.mesh.rotation.x+=p.wx*h;p.mesh.rotation.z+=p.wz*h;}
+  const height=support();
+  if(p.mesh.position.y<=height){
+   p.mesh.position.y=height;
+   if(Math.abs(p.vy)<.65)p.settling=true;
+   p.vy=p.settling?0:Math.abs(p.vy)*.3;
+   const friction=Math.exp(-5*h);p.vx*=friction;p.vz*=friction;p.wx*=friction;p.wz*=friction;
+  }
+  if(p.settling){
+   lidNormal.set(0,axis.y>=0?1:-1,0);rotation.setFromUnitVectors(axis,lidNormal);
+   inverse.copy(rotation).multiply(p.mesh.quaternion);p.mesh.quaternion.slerp(inverse,1-Math.exp(-7*h));
+   p.mesh.position.y=support();p.vy=0;
+  }
+ }
+}
