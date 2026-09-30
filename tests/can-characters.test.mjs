@@ -80,3 +80,17 @@ test('a blast batches surface cuts and a killing top hit stays open on the eject
  const lid=scene.getObjectByName('ejected-can-lid');scene.updateMatrixWorld(true);
  assert.equal(new THREE.Raycaster(new THREE.Vector3(0,3,0),new THREE.Vector3(0,-1,0)).intersectObject(lid.children[0]).length,0);
 });
+
+
+test('fresh entry and exit stay visible after the can reaches its wound limit',()=>{
+ const scene=new THREE.Scene(),can=createCanCharacter(),effects=createCanEffects(scene);scene.add(can);
+ for(let i=0;i<39;i++)effects.hit(can,{point:{x:.42,y:1,z:0},direction:{x:-1,y:0,z:0},holeRadius:.0121});
+ effects.hit(can,{point:{x:0,y:1,z:.42},exitPoint:{x:0,y:1,z:-.42},direction:{x:0,y:0,z:-1},holeRadius:.0745});effects.update(0);
+ assert.equal(can.userData.holes.length,40);assert.equal(can.userData.tears.length,40);
+ const [entry,exit]=can.userData.holes.slice(-2);assert.equal(entry.exit,false);assert.equal(exit.exit,true);assert.equal(entry.impact,exit.impact);
+ assert.ok(exit.radius>entry.radius);
+ const meshes=[can.userData.shell,can.userData.interior,can.userData.sauce,...can.userData.tears.flatMap(t=>t.children)];
+ assert.equal(cast(can,0,1,2,new THREE.Vector3(0,0,-1),meshes)[0].object,can.userData.sauce);
+ assert.equal(cast(can,0,1,-2,new THREE.Vector3(0,0,1),meshes)[0].object,can.userData.sauce);
+ resetCan(can);assert.equal(can.userData.tears.length,0);assert.equal(can.userData.holes.length,0);
+});

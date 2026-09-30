@@ -22,10 +22,21 @@ export function cutCanSurface(base,holes){
  const geometry=new THREE.BufferGeometry();for(const name of attributes)geometry.setAttribute(name,new THREE.Float32BufferAttribute(output[name],base.getAttribute(name).itemSize));return geometry;
 }
 
-export function woundRim(radius,curved=true){
- const vertices=[],segments=28,width=Math.min(.013,Math.max(.003,radius*.16));
- const point=(i,outer)=>{const a=i/segments*Math.PI*2,r=radius*(1+.025*Math.sin(a*5)+.015*Math.cos(a*9))+(outer?width:0),x=Math.cos(a)*r,y=Math.sin(a)*r;
-  return [x,y,(curved?-.42+Math.sqrt(Math.max(.01,.42*.42-x*x)):0)+(outer?.001:-.007)+Math.sin(a*3)*.0015];};
- for(let i=0;i<segments;i++){const a=point(i,false),b=point(i+1,false),c=point(i,true),d=point(i+1,true);vertices.push(...a,...b,...c,...c,...b,...d);}
- const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.computeVertexNormals();return geometry;
+// One continuous sheet joins every torn point to a creased shoulder and an
+// outer edge seated on the can. Exit petals bend outward; entry petals fold in.
+export function woundRim(radius,curved=true,exit=false){
+ const segments=20,vertices=[],colors=[],indices=[],fold=Math.min(.065,radius*(exit?.48:.22));
+ for(let row=0;row<3;row++)for(let i=0;i<segments;i++){
+  const a=i/segments*Math.PI*2,noise=Math.sin(i*7.13),tooth=i%2===0;
+  const r=radius*(row===0?(tooth?.73+.045*noise:1.035+.035*noise):row===1?1.09+.025*noise:(tooth?1.17:1.34)+.055*noise);
+  const x=Math.cos(a)*r,y=Math.sin(a)*r,curve=curved?-.42+Math.sqrt(Math.max(.001,.42*.42-x*x)):0;
+  const bend=row===2?.001:row===1?fold*.18:fold*(tooth?1:.2)*(exit?1:-1);
+  vertices.push(x,y,curve+bend);
+  const shade=row===0?.78:row===1?1:.91;colors.push(shade,shade,shade);
+ }
+ for(let row=0;row<2;row++)for(let i=0;i<segments;i++){
+  const a=row*segments+i,b=row*segments+(i+1)%segments,c=a+segments,d=b+segments;
+  indices.push(a,c,b,b,c,d);
+ }
+ const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(vertices,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));geometry.setIndex(indices);geometry.computeVertexNormals();return geometry;
 }

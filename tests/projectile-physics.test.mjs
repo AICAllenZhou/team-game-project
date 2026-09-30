@@ -47,3 +47,32 @@ test('buckshot opens revolver-sized can holes without increasing its damage',()=
  assert.equal(AMMO_MODS.shotgun.standard.damage,12);
  assert.ok(hit(AMMO_MODS.shotgun.birdshot).holeRadius<hit(AMMO_MODS.shotgun.standard).holeRadius);
 });
+
+test('penetrating ammo keeps backside exits for low, high and angled can impacts',()=>{
+ const target={id:'can',x:10,y:0,z:3,hp:100};
+ const shots=[
+  {origin:{x:10,y:.06,z:5},direction:{x:0,y:0,z:-1}},
+  {origin:{x:10,y:1.74,z:5},direction:{x:0,y:0,z:-1}},
+  {origin:{x:10.32,y:.9,z:5},direction:{x:0,y:0,z:-1}},
+  {origin:{x:10,y:1.3,z:5},direction:{x:0,y:.3/Math.hypot(1,.3),z:-1/Math.hypot(1,.3)}},
+  {origin:{x:10,y:3,z:3},direction:{x:0,y:-1,z:0}},
+ ];
+ for(const profile of [AMMO_MODS.revolver.standard,AMMO_MODS.revolver.small,AMMO_MODS.shotgun.standard,AMMO_MODS.shotgun.slug])for(const ray of shots){
+  const bullet=launchProjectile(ray,profile),hit=advanceProjectile(bullet,.1,[target],[],null).find(hit=>hit.hit===target.id);
+  assert.ok(hit?.penetrated,'penetrating ammo must include an exit');
+  const exit=hit.exitPoint,delta={x:exit.x-hit.point.x,y:exit.y-hit.point.y,z:exit.z-hit.point.z};
+  const forward=delta.x*ray.direction.x+delta.y*ray.direction.y+delta.z*ray.direction.z;
+  assert.ok(forward>0,'exit is past the entry');
+  for(const axis of ['x','y','z'])assert.ok(Math.abs(delta[axis]-ray.direction[axis]*forward)<1e-7,'entry and exit follow the same bullet path');
+  const sideDistance=Math.abs(Math.hypot(exit.x-target.x,exit.z-target.z)-.42);
+  const capDistance=Math.min(Math.abs(exit.y-target.y),Math.abs(exit.y-target.y-1.8));
+  assert.ok(Math.min(sideDistance,capDistance)<1e-7,'exit remains on the metal surface');
+ }
+});
+
+test('the final can penetration still emits its exit even when the bullet stops afterward',()=>{
+ const bullet=round({...AMMO_MODS.revolver.standard,penetration:2});
+ const hit=advanceProjectile(bullet,.06,[{id:'can',x:10,y:0,z:3,hp:100}],[],null)[0];
+ assert.equal(hit.penetrated,true);assert.equal(hit.stopped,true);assert.equal(bullet.alive,false);
+ assert.ok(Math.abs(hit.exitPoint.z-2.58)<1e-7);
+});

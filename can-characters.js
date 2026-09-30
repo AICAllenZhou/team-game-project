@@ -8,7 +8,7 @@ const TYPES=[{name:'BAKED BEANS',sub:'FRONTIER PANTRY',color:0xa84026,food:0x8e4
  {name:'TOMATO SOUP',sub:'RICH & HEARTY',color:0xb52f26,food:0xd64b24,scale:[1,.45,1]},
  {name:'SWEET CORN',sub:'GOLDEN KERNELS',color:0x62834a,food:0xf3c94d,scale:[.7,1,.65]}];
 const metal=new THREE.MeshStandardMaterial({color:0xaeb5b7,metalness:.8,roughness:.35,flatShading:true,side:THREE.DoubleSide});
-const rimMetal=metal.clone();rimMetal.flatShading=false;rimMetal.roughness=.48;
+const rimMetal=metal.clone();rimMetal.flatShading=true;rimMetal.roughness=.42;rimMetal.metalness=.55;rimMetal.vertexColors=true;
 const darkMetal=new THREE.MeshStandardMaterial({color:0x333b3b,metalness:.6,roughness:.6,side:THREE.BackSide});
 const temp=new THREE.Object3D(),color=new THREE.Color(),up=new THREE.Vector3(0,1,0),offset=new THREE.Vector3();
 
@@ -66,15 +66,15 @@ export function createCanCharacter(type=0){
  Object.assign(root.userData,{hat,fill:1,sauce,leaks:[],canType:type,body,shell,interior,baseGeometry:shell.geometry.clone(),capTop:top,capBottom:bottom,baseTop:top.geometry.clone(),baseBottom:bottom.geometry.clone(),lid,holes:[],dirtySurfaces:new Set(),tears:[],ragdoll:null});return root;
 }
 
-function puncture(root,point,direction,radius=.075){
- const data=root.userData;if(data.holes.length>=40)return;
+function puncture(root,point,direction,radius=.075,exit=false,impact=null){
+ const data=root.userData;
  root.updateWorldMatrix(true,true);const local=data.body.worldToLocal(new THREE.Vector3(point.x,point.y,point.z));
  const surface=local.y>.87?1:local.y<-.87?2:0,cap=surface===1?data.capTop:surface===2?data.capBottom:null;
  const length=Math.hypot(local.x,local.z);if(!cap){if(length<.01)return;local.x*=.422/length;local.z*=.422/length;local.y=THREE.MathUtils.clamp(local.y,-.85,.85);}
  const cutPoint=cap?cap.worldToLocal(new THREE.Vector3(point.x,point.y,point.z)):local.clone();if(cap)cutPoint.z=0;
- data.holes.push({point:local.clone(),radius,cutPoint,surface});data.leaks.push({point:local.clone(),radius,clock:0});data.dirtySurfaces.add(surface);
+ const hole={point:local.clone(),radius,cutPoint,surface,exit,impact,clock:0};data.holes.push(hole);data.leaks.push(hole);data.dirtySurfaces.add(surface);
  const normal=cap?new THREE.Vector3(0,surface===1?1:-1,0):new THREE.Vector3(local.x,0,local.z).normalize(),tear=new THREE.Group();tear.position.copy(local);tear.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),normal);
- tear.add(new THREE.Mesh(woundRim(radius,!cap),rimMetal));data.body.add(tear);data.tears.push(tear);
+ tear.add(new THREE.Mesh(woundRim(radius,!cap,exit),rimMetal));data.body.add(tear);data.tears.push(tear);hole.tear=tear;
 }
 
 export function resetCan(root){
@@ -93,7 +93,17 @@ export function createCanEffects(scene){
   }
  }
  function hit(root,result){
-  damaged.add(root);const radius=result.holeRadius??.075;puncture(root,result.point,result.direction,radius);if(result.exitPoint)puncture(root,result.exitPoint,result.direction,radius*1.15);leaking.add(root);spill(root,result.point,result.direction,Math.min(32,Math.max(3,Math.round(radius*100))));
+  const data=root.userData,needed=result.exitPoint?2:1;
+  // Retire complete old impacts, never just the back half of a new shot.
+  while(data.holes.length+needed>40){const oldest=data.holes[0].impact;
+   for(const hole of data.holes.filter(h=>h.impact===oldest)){
+    data.dirtySurfaces.add(hole.surface);hole.tear.traverse(m=>m.geometry?.dispose());hole.tear.removeFromParent();
+    data.tears.splice(data.tears.indexOf(hole.tear),1);data.leaks=data.leaks.filter(h=>h!==hole);
+   }data.holes=data.holes.filter(h=>h.impact!==oldest);
+  }
+  damaged.add(root);const radius=result.holeRadius??.075,impact={};puncture(root,result.point,result.direction,radius,false,impact);
+  if(result.exitPoint)puncture(root,result.exitPoint,result.direction,radius*1.2,true,impact);
+  leaking.add(root);spill(root,result.point,result.direction,Math.min(32,Math.max(3,Math.round(radius*100))));
   if(result.killed)kill(root,result.direction,result.point);
  }
  function kill(root,direction={x:0,y:0,z:-1},point=null){
