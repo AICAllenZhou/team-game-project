@@ -1,4 +1,5 @@
 import * as THREE from './vendor/three.module.js';
+import {createFoodSplats} from './food-splats.js';
 
 const TYPES=[{name:'BAKED BEANS',sub:'FRONTIER PANTRY',color:0xa84026,food:0x8e4524,scale:[1,.65,.7]},
  {name:'TOMATO SOUP',sub:'RICH & HEARTY',color:0xb52f26,food:0xd64b24,scale:[1,.45,1]},
@@ -70,17 +71,18 @@ function puncture(root,point,direction){
 }
 
 export function resetCan(root){
- const d=root.userData;root.rotation.set(0,0,0);d.ragdoll=null;d.holes=[];d.shell.geometry.setIndex(null);d.lid.rotation.set(0,0,0);d.rightHand?.rotation.set(0,0,0);
+ const d=root.userData;root.rotation.set(0,0,0);d.ragdoll=null;d.holes=[];d.shell.geometry.setIndex(null);d.lid.rotation.set(0,0,0);d.rightHand?.rotation.set(0,0,0);d.lid.visible=true;if(d.rightHand)d.rightHand.visible=true;
  for(const tear of d.tears){tear.traverse(m=>m.geometry?.dispose());d.body.remove(tear);}d.tears=[];root.visible=true;
 }
 
 export function createCanEffects(scene){
+ const splats=createFoodSplats(scene),lids=[];
  const capacity=600,items=[],mesh=new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1,1),new THREE.MeshStandardMaterial({roughness:.67,flatShading:true}),capacity);
- mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);mesh.count=0;mesh.frustumCulled=false;scene.add(mesh);
+ mesh.name='can-food-pieces';mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);mesh.count=0;mesh.frustumCulled=false;scene.add(mesh);
  const bodies=new Set();
  function spill(root,point,direction,count){const type=TYPES[root.userData.canType];
-  for(let i=0;i<count;i++){if(items.length>=capacity)items.shift();const scrap=i%7===0,size=scrap?.045:.032+Math.random()*.02;
-   items.push({x:point.x,y:point.y,z:point.z,vx:-direction.x*1.7+(Math.random()-.5)*2.8,vy:1.5+Math.random()*2.4+direction.y,vz:-direction.z*1.7+(Math.random()-.5)*2.8,rx:Math.random()*6,rz:Math.random()*6,life:7+Math.random()*2,size,scale:scrap?[1,.13,1.6]:type.scale,color:scrap?0xaab1b4:type.food});
+  for(let i=0;i<count;i++){if(items.length>=capacity)items.shift();const scrap=i%7===0,size=scrap?.045:.085+Math.random()*.035;
+   items.push({type:root.userData.canType,splat:!scrap&&i%3===1,landed:false,x:point.x,y:point.y,z:point.z,vx:-direction.x*1.7+(Math.random()-.5)*2.8,vy:1.5+Math.random()*2.4+direction.y,vz:-direction.z*1.7+(Math.random()-.5)*2.8,rx:Math.random()*6,rz:Math.random()*6,life:18+Math.random()*2,size,scale:scrap?[1,.13,1.6]:type.scale,color:scrap?0xaab1b4:type.food});
   }
  }
  function hit(root,result){
@@ -89,6 +91,10 @@ export function createCanEffects(scene){
  }
  function kill(root,direction={x:0,y:0,z:-1}){
   if(root.userData.ragdoll)return;
+  const data=root.userData;if(data.rightHand)data.rightHand.visible=false;
+  root.updateWorldMatrix(true,true);const lid=data.lid.clone(true);lid.name='ejected-can-lid';lid.traverse(m=>{if(m.geometry)m.geometry=m.geometry.clone();});data.lid.getWorldPosition(lid.position);data.lid.getWorldQuaternion(lid.quaternion);scene.add(lid);data.lid.visible=false;
+  if(lids.length>=24){const oldest=lids.shift();scene.remove(oldest.mesh);oldest.mesh.traverse(m=>m.geometry?.dispose());}
+  lids.push({mesh:lid,vx:direction.x*1.5+(Math.random()-.5),vy:9.5,vz:direction.z*1.5,wx:5,wz:3,life:15});
   root.visible=true;root.userData.ragdoll={x:root.position.x,y:root.position.y+.9,z:root.position.z,vx:direction.x*2.7,vy:2.2,vz:direction.z*2.7,wx:-direction.z*4,wz:direction.x*4,age:0};bodies.add(root);
  }
  function update(dt){
@@ -103,13 +109,20 @@ export function createCanEffects(scene){
     }
    }
    offset.set(0,.9,0).applyQuaternion(root.quaternion);root.position.set(p.x-offset.x,p.y-offset.y,p.z-offset.z);
-   root.userData.lid.rotation.z=Math.sin(p.age*14)*.3*Math.exp(-p.age*.7)+.35;
-   const hand=root.userData.rightHand;if(hand){hand.rotation.x=Math.sin(p.age*10)*.7;hand.rotation.z=Math.sin(p.age*8)*.8;}
   }
+  for(let i=lids.length-1;i>=0;i--){const p=lids[i];p.life-=dt;
+   if(p.life<=0){scene.remove(p.mesh);p.mesh.traverse(m=>m.geometry?.dispose());lids.splice(i,1);continue;}
+   const steps=Math.max(1,Math.ceil(dt*120)),h=dt/steps;
+   for(let j=0;j<steps;j++){p.vy-=9.81*h;p.mesh.position.x+=p.vx*h;p.mesh.position.y+=p.vy*h;p.mesh.position.z+=p.vz*h;p.mesh.rotation.x+=p.wx*h;p.mesh.rotation.z+=p.wz*h;
+    up.set(0,1,0).applyQuaternion(p.mesh.quaternion);const support=.405*Math.sqrt(Math.max(0,1-up.y*up.y))+.025*Math.abs(up.y);
+    if(p.mesh.position.y<support){p.mesh.position.y=support;p.vy=Math.abs(p.vy)>.4?-p.vy*.3:0;const friction=Math.exp(-5*h);p.vx*=friction;p.vz*=friction;p.wx*=friction;p.wz*=friction;}
+   }
+  }
+  splats.update(dt);
   mesh.count=0;
   for(let i=items.length-1;i>=0;i--){const p=items[i];p.life-=dt;if(p.life<=0){items.splice(i,1);continue;}
    p.vy-=9.81*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.z+=p.vz*dt;
-   if(p.y<p.size){p.y=p.size;p.vy=Math.abs(p.vy)>.5?-p.vy*.22:0;const friction=Math.exp(-9*dt);p.vx*=friction;p.vz*=friction;}else{p.rx+=dt*6;p.rz+=dt*4;}
+   if(p.y<p.size){if(!p.landed){p.landed=true;if(p.splat)splats.add(p.type,p.x,p.z,.65+Math.random()*.5);}p.y=p.size;p.vy=Math.abs(p.vy)>.5?-p.vy*.22:0;const friction=Math.exp(-9*dt);p.vx*=friction;p.vz*=friction;}else{p.rx+=dt*6;p.rz+=dt*4;}
    temp.position.set(p.x,p.y,p.z);temp.rotation.set(p.rx,0,p.rz);const size=p.size*Math.min(1,p.life);temp.scale.set(size*p.scale[0],size*p.scale[1],size*p.scale[2]);temp.updateMatrix();mesh.setMatrixAt(mesh.count,temp.matrix);mesh.setColorAt(mesh.count++,color.setHex(p.color));
   }
   if(mesh.count){mesh.instanceMatrix.needsUpdate=true;mesh.instanceColor.needsUpdate=true;}
