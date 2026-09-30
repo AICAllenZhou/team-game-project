@@ -92,3 +92,9 @@ On the host computer, double-click `start-lan.cmd` (Windows with Node.js 22+ ins
 Everyone on the same network opens that address in a desktop browser and enters a username. No room/lobby input is needed; the server automatically places players together, with overflow after 12 players. The host can also use `http://localhost:3000`. If Windows asks about Node.js network access, allow it on your private home network. The Vercel address is a separate static practice site; use the host's local address for Wi-Fi multiplayer. The local address can change when the host reconnects to Wi-Fi.
 
 The Admin button is a compact secondary button matching the menu.
+
+## Projectile combat and can characters
+
+Shots now spawn traveling rounds (160 units/s revolver, 220 units/s shotgun). Each simulation step sweeps only the distance traveled against current targets and walls; damage happens at impact, not on the trigger press. Ammo modifiers are captured when firing, so changing guns cannot change a round already in flight. Standard buckshot has six-cell penetration like the revolver, with a smaller central hole and edge chips per pellet.
+
+Characters are faceted baked-bean, tomato-soup and sweet-corn cans, with matching closed-cylinder hitboxes. Hits remove surface triangles and expose torn metal; food and metal fragments bounce and expire from a bounded particle pool. Killed practice cans tumble, bounce and settle, then respawn after three active seconds. Multiplayer clients receive authoritative impact events for the same damage effects.

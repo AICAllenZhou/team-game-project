@@ -1,11 +1,12 @@
+import {launchProjectile,advanceProjectile} from './projectile-physics.mjs';
 import {networkInterfaces} from 'node:os';
-import {applyDamage,shotDamage,setPowers} from './combat.mjs';
+import {applyDamage,setPowers} from './combat.mjs';
 import {createVoxelWalls} from './voxel-walls.mjs';
 import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {randomUUID} from 'node:crypto';
-import {destructiveShot,move,traceShot,firingMode,resolveBarrelShot} from './simulation.mjs';
+import {move,firingMode,resolveBarrelShot} from './simulation.mjs';
 import {createSkeetRange,clayPose} from './skeet.mjs';
 import {AMMO_MODS,ammoProfile,canPickUpShotgun,WEAPONS,shotgunPellets,SHOTGUN_INTERVAL,shotgunDischarge} from './weapons.mjs';
 const adminSessions=new Map(),loginAttempts=new Map();
@@ -13,7 +14,7 @@ const adminCode=process.env.ADMIN_CODE||'0310';
 const allowedOrigins=new Set((process.env.ALLOWED_ORIGINS||'').split(',').map(s=>s.trim()).filter(Boolean));
 function isAdmin(value){const expires=adminSessions.get(value);return expires>Date.now();}
 function json(res,value,status=200){res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(value));}
-const rooms=new Map(),sessions=new Map(),skeetRanges=new Map(),wallWorlds=new Map();
+const rooms=new Map(),sessions=new Map(),skeetRanges=new Map(),wallWorlds=new Map(),bullets=[];
 const spawn=()=>({x:(Math.random()-.5)*36,z:(Math.random()-.5)*36,y:0,vy:0,vx:0,vz:0});
 const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 function publicPlayer(p){const {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun,mods,powers}=p;return {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun,mods,powers};}
@@ -93,14 +94,8 @@ const server=http.createServer(async(req,res)=>{
    const shotId=typeof data.shotId==='string'?data.shotId.slice(0,64):'',players=[...room.values()].filter(other=>other!==p);
    const profile=ammoProfile(p.weapon,p.mods);
    const rays=p.weapon==='shotgun'?shotgunPellets(origin,direction,data.barrelRight,shotId,discharge.barrel,profile):[{origin,direction}];
-   const walls=wallWorlds.get(p.room);
-   const results=rays.map(ray=>{const result={...ray,...destructiveShot(ray.origin,ray.direction,players,clays,walls,profile)};for(const change of result.wallChanges)if(change.removed.length)broadcast(room,'wallDamage',change);return result;});
-   for(const result of results){
-    if(result.clayId){const broken=range.breakClay(result.clayId,now,result.direction);if(broken)broadcast(room,'clayBreak',broken);}
-    const victim=result.hit?room.get(result.hit):null;
-    if(victim&&applyDamage(victim,shotDamage(p.weapon,p.mods,result.headshot),now))p.kills++;
-   }
-   broadcast(room,'shot',{id:p.id,weapon:p.weapon,bulletSize:profile.size,origin,direction,...(p.weapon==='shotgun'?{pellets:results}:results[0]),fan,shotId});
+   for(let i=0;i<rays.length;i++)bullets.push(launchProjectile(rays[i],profile,{room:p.room,shooter:p.id,weapon:p.weapon,shotId:p.weapon==='shotgun'?`${shotId}/${i}`:shotId,born:now,updatedAt:now}));
+   broadcast(room,'shot',{id:p.id,weapon:p.weapon,bulletSize:profile.size,profile,origin,direction,...(p.weapon==='shotgun'?{pellets:rays}:{}),fan,shotId});
   }
   res.writeHead(204).end();return;
  }
@@ -109,20 +104,30 @@ const server=http.createServer(async(req,res)=>{
   p.stream?.end();res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'});res.write(': connected\n\n');p.stream=res;send(res,'wallState',wallWorlds.get(p.room).snapshot());
   req.on('close',()=>{if(p.stream===res)p.stream=null;});return;
  }
- const files={'/bootstrap.js':'bootstrap.js','/combat.mjs':'combat.mjs','/menu.js':'menu.js','/runtime-config.js':'runtime-config.js','/voxel-walls.mjs':'voxel-walls.mjs','/voxel-wall-view.js':'voxel-wall-view.js','/':'index.html','/index.html':'index.html','/game.js':'game.js','/game-loop.js':'game-loop.js','/render-batches.js':'render-batches.js','/weapon-pose.js':'weapon-pose.js','/weapon-audio.js':'weapon-audio.js','/simulation.mjs':'simulation.mjs','/skeet.mjs':'skeet.mjs','/skeet-view.js':'skeet-view.js','/weapons.mjs':'weapons.mjs','/shotgun-view.js':'shotgun-view.js','/shell-physics.js':'shell-physics.js','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
+ const files={'/projectile-physics.mjs':'projectile-physics.mjs','/can-characters.js':'can-characters.js','/bootstrap.js':'bootstrap.js','/combat.mjs':'combat.mjs','/menu.js':'menu.js','/runtime-config.js':'runtime-config.js','/voxel-walls.mjs':'voxel-walls.mjs','/voxel-wall-view.js':'voxel-wall-view.js','/':'index.html','/index.html':'index.html','/game.js':'game.js','/game-loop.js':'game-loop.js','/render-batches.js':'render-batches.js','/weapon-pose.js':'weapon-pose.js','/weapon-audio.js':'weapon-audio.js','/simulation.mjs':'simulation.mjs','/skeet.mjs':'skeet.mjs','/skeet-view.js':'skeet-view.js','/weapons.mjs':'weapons.mjs','/shotgun-view.js':'shotgun-view.js','/shell-physics.js':'shell-physics.js','/style.css':'style.css','/vendor/three.module.js':'vendor/three.module.js','/vendor/three.core.js':'vendor/three.core.js'};
  for(const i of [1,2,3])files['/assets/audio/revolver-'+i+'.wav']='assets/audio/revolver-'+i+'.wav';
  const file=files[url.pathname];if(!file||req.method!=='GET'){res.writeHead(404).end('Not found');return;}
  res.setHeader('Cache-Control','no-store');
  res.setHeader('Content-Type',file.endsWith('.html')?'text/html':file.endsWith('.css')?'text/css':file.endsWith('.wav')?'audio/wav':'text/javascript');res.end(await readFile(fileURLToPath(new URL(file,import.meta.url))));
  }catch(e){console.error(e.message);if(!res.headersSent)res.writeHead(500);res.end();}
 });
-setInterval(()=>{const now=Date.now();for(const [key,expires] of adminSessions)if(expires<=now)adminSessions.delete(key);for(const [key,attempt] of loginAttempts)if(attempt.until<=now)loginAttempts.delete(key);for(const [key,room] of rooms){
+setInterval(()=>{const now=Date.now();for(let i=bullets.length-1;i>=0;i--)if(!rooms.has(bullets[i].room))bullets.splice(i,1);for(const [key,expires] of adminSessions)if(expires<=now)adminSessions.delete(key);for(const [key,attempt] of loginAttempts)if(attempt.until<=now)loginAttempts.delete(key);for(const [key,room] of rooms){
  const range=skeetRanges.get(key);for(const broken of range.update(now))broadcast(room,'clayBreak',broken);
  for(const p of room.values()){
  if(now-p.lastSeen>15000){remove(p);continue;}
  if(p.deadUntil&&now>=p.deadUntil){Object.assign(p,spawn(),{hp:100,ammo:ammoProfile(p.weapon,p.mods).capacity,ammoByWeapon:{revolver:ammoProfile('revolver',p.mods).capacity,shotgun:2},deadUntil:0,reloadUntil:0});}
  if(p.reloadUntil&&now>=p.reloadUntil){p.ammo=ammoProfile(p.weapon,p.mods).capacity;p.ammoByWeapon[p.weapon]=p.ammo;p.reloadUntil=0;}
  if(p.hp>0){const old={x:p.x,z:p.z};move(p,p.input,.05);wallWorlds.get(key).collide(p,old);}
+ }
+ for(let i=bullets.length-1;i>=0;i--){const bullet=bullets[i];if(bullet.room!==key)continue;const dt=Math.min(.1,(now-bullet.updatedAt)/1000);bullet.updatedAt=now;
+  const clays=range.flights.map(f=>clayPose(f,now));
+  for(const result of advanceProjectile(bullet,dt,[...room.values()].filter(p=>p.id!==bullet.shooter),clays,wallWorlds.get(key))){
+   for(const change of result.wallChanges)broadcast(room,'wallDamage',change);
+   if(result.clayId){const broken=range.breakClay(result.clayId,now,bullet.direction);if(broken)broadcast(room,'clayBreak',broken);}
+   const victim=room.get(result.hit);if(victim){const killed=applyDamage(victim,result.headshot?bullet.profile.headDamage:bullet.profile.damage,now);const shooter=room.get(bullet.shooter);if(killed&&shooter)shooter.kills++;result.killed=killed;}
+   broadcast(room,'impact',result);
+  }
+  if(!bullet.alive)bullets.splice(i,1);
  }broadcast(room,'state',{time:now,players:[...room.values()].map(publicPlayer),clays:range.flights});
 }},50);
 server.listen(Number(process.env.PORT)||3000,'0.0.0.0',()=>{

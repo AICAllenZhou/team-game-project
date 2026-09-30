@@ -26,7 +26,7 @@ test('multiplayer shares room state, isolates rooms, enforces ammo and reload',a
  const muzzle={x:player.x+offset.x,y:1.5,z:player.z};
  await post('fire',{token:a.token,shotId:'floor-check',gunYaw:0,gunPitch:0,muzzle,direction});
  const reader=stream.body.getReader();let buffer='',shot;
- while(!shot){const {value,done}=await reader.read();assert.equal(done,false);buffer+=new TextDecoder().decode(value);const match=buffer.match(/event: shot\ndata: ([^\n]+)/);if(match)shot=JSON.parse(match[1]);}
+ while(!shot){const {value,done}=await reader.read();assert.equal(done,false);buffer+=new TextDecoder().decode(value);const match=buffer.match(/event: impact\ndata: ([^\n]+)/);if(match)shot=JSON.parse(match[1]);}
  assert.equal(shot.shotId,'floor-check');assert.equal(shot.surface,'world');assert.equal(shot.hit,null);assert.ok(Math.abs(shot.point.y+.01)<1e-8);assert.equal(shot.normal.y,1);
  assert.deepEqual(shot.origin,muzzle);assert.deepEqual(shot.direction,direction);
  }finally{clearTimeout(shotTimer);shotController.abort();}

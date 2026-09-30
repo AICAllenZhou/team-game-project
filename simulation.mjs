@@ -90,12 +90,13 @@ export function move(p,input,dt){
  p.vy=Number.isFinite(p.vy)?p.vy:0;p.y=Math.max(0,p.y+p.vy*dt-7.5*dt*dt);p.vy-=15*dt;if(p.y===0)p.vy=0;
 }
 export function rayHit(origin,direction,target){
- // Vertical capsule: two spherical caps plus cylindrical middle.
+ // Closed can cylinder, matching the visible flat lid and base.
  const ox=origin.x-target.x,oz=origin.z-target.z,oy=origin.y-target.y;
  const a=direction.x**2+direction.z**2,b=2*(ox*direction.x+oz*direction.z),c=ox**2+oz**2-.42**2;
  let best=Infinity,disc=b*b-4*a*c;
- if(a>1e-8&&disc>=0){for(const t of [(-b-Math.sqrt(disc))/(2*a),(-b+Math.sqrt(disc))/(2*a)]){const y=oy+t*direction.y;if(t>0&&y>=.42&&y<=1.38)best=Math.min(best,t);}}
- for(const cy of [.42,1.38]){const dy=oy-cy,b=ox*direction.x+dy*direction.y+oz*direction.z,c=ox*ox+dy*dy+oz*oz-.42**2,d=b*b-c;if(d>=0){const t=-b-Math.sqrt(d);if(t>0)best=Math.min(best,t);}}
+ if(a>1e-8&&disc>=0){for(const t of [(-b-Math.sqrt(disc))/(2*a),(-b+Math.sqrt(disc))/(2*a)]){const y=oy+t*direction.y;if(t>0&&y>=0&&y<=1.8)best=Math.min(best,t);}}
+ if(Math.abs(direction.y)>1e-8)for(const cap of [0,1.8]){const t=(cap-oy)/direction.y;if(t>0&&(ox+t*direction.x)**2+(oz+t*direction.z)**2<=.42**2)best=Math.min(best,t);}
+
  return best;
 }
 
