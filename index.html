@@ -5,23 +5,21 @@
 <canvas id="game" aria-label="Wild West first person arena"></canvas>
 <div class="lens" aria-hidden="true"></div>
 <main id="menu" class="panel">
- <p class="eyebrow">THE FRONTIER IS WAITING</p><h1>DUSTLINE</h1>
- <p id="connection-status" class="muted" role="status">Loading the range…</p>
+ <h1>DUSTLINE</h1>
+ <p id="connection-status" class="muted" role="status"></p>
  <form id="join-form">
   <label for="username">Username</label><input id="username" name="username" maxlength="16" required autocomplete="nickname" placeholder="Choose your name">
-  <p class="hint">Saved in a cookie on this browser for your next visit.</p>
-  <button id="play" type="submit" disabled>Join game</button>
+   <button id="play" type="submit" disabled>Join</button>
  </form>
  <p id="menu-message" role="status"></p>
  <button id="admin-open" class="secondary" type="button">Admin</button>
- <p class="controls">WASD move · Mouse aim · Click fire · R reload<br>1 / 2 weapons · B ammo · F clay · Space jump · Esc menu</p>
 </main>
 <section id="admin-panel" class="panel" aria-labelledby="admin-title" hidden>
  <div class="panel-heading"><h2 id="admin-title">Admin panel</h2><button id="admin-close" class="secondary" type="button">Back</button></div>
  <form id="admin-login"><label for="admin-code">Admin code</label><input id="admin-code" type="password" inputmode="numeric" autocomplete="off" maxlength="32" required><button type="submit">Unlock</button></form>
  <p id="admin-message" role="status"></p>
  <div id="admin-controls" hidden>
-  <h3>Your powers</h3><p class="hint">These switches affect only your player.</p>
+  <h3>Powers</h3>
   <fieldset id="power-controls" disabled><label><input id="no-recoil" type="checkbox"> No recoil</label><label><input id="infinite-ammo" type="checkbox"> Infinite ammo</label><label><input id="infinite-hp" type="checkbox"> Infinite health</label></fieldset>
   <div class="panel-heading"><h3>Players online</h3><button id="admin-refresh" class="secondary" type="button">Refresh</button></div>
   <div id="player-list" aria-live="polite"></div><button id="admin-lock" class="secondary" type="button">Lock panel</button>

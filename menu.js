@@ -11,7 +11,7 @@ export function createMenu({join,getSession,changePowers}){
  }
  $('username').addEventListener('input',()=>$('username').setCustomValidity(''));
  function message(text){$('menu-message').textContent=text;}
- function setMode(next){mode=next;$('connection-status').textContent=next==='online'?'Multiplayer server connected':next==='practice'?'Solo practice · Multiplayer server is not connected':'Connecting to multiplayer…';}
+ function setMode(next){mode=next;$('connection-status').textContent=next==='practice'?'Solo practice':'';}
  async function admin(path,data={}){
   const response=await fetch(API_BASE+'/api/admin/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({adminToken,...data})});
   if(!response.ok){const error=Error(await response.text()||'Admin request failed');error.status=response.status;throw error;}
@@ -21,7 +21,7 @@ export function createMenu({join,getSession,changePowers}){
  async function refresh(){
   if($('admin-panel').hidden||(!adminToken&&!practiceAdmin))return;
   powerState();
-  if(mode==='practice'){$('player-list').textContent='Solo practice: other visitors are not connected to this game. Connect a multiplayer server to see and join players.';return;}
+  if(mode==='practice'){$('player-list').textContent='No players connected.';return;}
   try{
    const {rooms}=await admin('players');$('player-list').replaceChildren();
    if(!rooms.length){$('player-list').textContent='No players online yet.';return;}
@@ -59,7 +59,7 @@ export function createMenu({join,getSession,changePowers}){
  $('power-controls').onchange=async()=>{
   busy=true;$('power-controls').disabled=true;
   const powers={noRecoil:$('no-recoil').checked,infiniteAmmo:$('infinite-ammo').checked,infiniteHp:$('infinite-hp').checked};
-  try{const s=getSession();const player=s.online?await admin('powers',{token:s.token,powers}):null;changePowers(powers,player);$('admin-message').textContent='Your powers were updated.';}
+  try{const s=getSession();const player=s.online?await admin('powers',{token:s.token,powers}):null;changePowers(powers,player);$('admin-message').textContent='';}
   catch(e){$('admin-message').textContent=e.message;}finally{busy=false;powerState();}
  };
  $('join-form').onsubmit=async e=>{e.preventDefault();const name=username();if(!name)return;try{await join({name,adminToken});}catch(e){message(e.message);}};
@@ -69,5 +69,5 @@ export function createMenu({join,getSession,changePowers}){
   else if(r.ok&&(r.headers.get('content-type')||'').includes('application/json')&&(await r.json()).multiplayer)setMode('online');
   else throw Error('Multiplayer server is unavailable.');
  }).catch(e=>{message(e.message);setMode('error');$('connection-status').textContent='Unable to connect. Refresh to try again.';}).finally(()=>$('play').disabled=mode==='error');
- return {message,setMode,mode:()=>mode,sessionChanged(){const s=getSession();$('username').disabled=s.started;$('play').textContent=s.started?'Resume game':'Join game';powerState();},close};
+ return {message,setMode,mode:()=>mode,sessionChanged(){const s=getSession();document.body.classList.toggle('has-session',s.started);$('username').disabled=s.started;$('play').textContent=s.started?'Resume':'Join';powerState();},close};
 }
