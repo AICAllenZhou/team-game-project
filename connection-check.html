@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width,initial-scale=1">
+ <link rel="stylesheet" href="style.css">
+ <title>DUSTLINE — Connection check</title>
+ <style>
+  :root{color-scheme:dark;font:16px/1.5 system-ui,sans-serif;background:#17191a;color:#f0e8db}
+  *{box-sizing:border-box}body{margin:0;padding:32px 18px;overflow:auto}main{max-width:700px;margin:auto}
+  a{color:#e5bb7e}h1{font-size:2rem;line-height:1.2;margin-bottom:10px}h2{font-size:1.15rem;margin:0 0 14px}
+  p{margin:10px 0}.muted{color:#b6b1a8}.card{background:#242728;border:1px solid #45433e;border-radius:12px;padding:22px;margin:22px 0}
+  label{display:block;margin:14px 0 6px}input,button{font:inherit;border-radius:7px;padding:10px 13px}
+  input{width:100%;background:#17191a;border:1px solid #777369;color:inherit}button{border:0;background:#e0b675;color:#1d1d1b;font-weight:650;cursor:pointer;margin-top:14px}
+  button.secondary{background:#42484a;color:inherit;margin-left:8px}button:disabled{opacity:.5;cursor:default}
+  :focus-visible{outline:3px solid #8bcee5;outline-offset:3px}.code{font:700 1.35rem ui-monospace,monospace;letter-spacing:.16em}
+  ul,ol{padding-left:22px}li{margin:6px 0}.status{min-height:24px;overflow-wrap:anywhere}.error{color:#ffb4a5}.success{color:#ade0b7}
+  .note{font-size:.92rem}.checks li[data-done=true]{color:#ade0b7}[hidden]{display:none!important}
+ </style>
+</head>
+<body>
+<main>
+ <a href="/">← Back to DUSTLINE</a>
+ <h1>Connection check</h1>
+ <p class="muted">Check player connections without loading the 3D game.</p>
+ <section class="card" aria-labelledby="manual-heading">
+  <h2 id="manual-heading">Your connection</h2>
+  <p class="note muted">Start a temporary player without 3D graphics.</p>
+  <form id="start-form">
+   <label for="check-username">Username</label>
+   <input id="check-username" name="username" autocomplete="nickname" maxlength="16" required placeholder="Choose your name">
+   <button id="start-connection" type="submit">Start</button><button id="leave-connection" class="secondary" type="button" disabled>Leave</button>
+  </form>
+  <p id="manual-status" class="status" role="status">Ready to start.</p>
+  <div id="room-members" hidden><h2>Players in this game</h2><ul id="player-list"></ul></div>
+ </section>
+ <section class="card" aria-labelledby="automatic-heading">
+  <h2 id="automatic-heading">Admin connection check</h2>
+  <p class="note muted">Open two temporary players in this browser, join one directly as an admin, and check that game updates travel between them. The temporary connections close when the check finishes.</p>
+  <p class="note muted">A check between separate computers still needs both devices connected to the same local network.</p>
+  <form id="automatic-form">
+   <label for="check-admin-code">Admin code</label>
+   <input id="check-admin-code" name="admin-code" type="password" inputmode="numeric" autocomplete="off" maxlength="32" required>
+   <button id="run-check" type="submit">Run admin connection check</button>
+  </form>
+  <p id="automatic-status" class="status" role="status">Ready to check.</p>
+  <ol id="check-results" class="checks" aria-live="polite"></ol>
+ </section>
+</main>
+<script type="module" src="./connection-check.js"></script>
+</body>
+</html>

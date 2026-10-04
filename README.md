@@ -18,9 +18,9 @@ Holding RMB shows a bright amber beam along the actual barrel direction, stoppin
 
 Camera sensitivity is constant across the entire hand range, with RMB selecting a slower rate. Camera turning follows mouse distance directly without acceleration, speed caps or continued rotation after stopping. Raw mouse input is requested where supported. Hand sensitivity is linear up to its physical stop, with a fixed 35 ms follow time that is consistent across frame rates. RMB selects its slower sensitivity immediately; the beam appearance eases separately. Walking accelerates and stops smoothly using identical integration on the server and client. Network correction velocity also eases in. The camera stays level, with walking bob on the gun only. Camera recoil uses a gentle spring impulse while the gun kicks harder. One rendering path stays active and the muzzle light stays registered to avoid shot-time shader changes. Local game files are served without caching so a refresh loads the latest controls.
 
-Install Node.js 22 or newer, then run `node server.mjs` and open `http://localhost:3000`. No package installation or build is needed. Players on the same network can open `http://YOUR-LAN-IP:3000` and enter a username. Players are matched automatically into a shared arena; a new arena opens when 12 players are present. Each room supports 12 players. To play over the internet, deploy this Node server to a host supporting long-lived HTTP/SSE connections and share its HTTPS URL. Allow the server port through your firewall only as needed.
+Install Node.js 22 or newer, then run `node server.mjs` and open `http://localhost:3000`. No package installation or build is needed. Players on the same network can open `http://YOUR-LAN-IP:3000` and enter a username. Press Play to host a game; an admin can join directly from the player list. Each lobby supports two players and includes the three practice cans. To play over the internet, deploy this Node server to a host supporting long-lived HTTP/SSE connections and share its HTTPS URL. Allow the server port through your firewall only as needed.
 
-Controls: WASD move, mouse free-aim/turn, hold RMB for the aiming beam, left click fire, double-click/rapid clicks fan-fire, R reload, 1 revolver, 2 shotgun, F launch a clay, E open GUNZ at the counter, Space jump, Esc pause/release mouse. Desktop keyboard/mouse and WebGL are required. Click Join again if the browser requires a second gesture to capture the mouse.
+Controls: WASD move, mouse free-aim/turn, hold RMB for the aiming beam, left click fire, double-click/rapid clicks fan-fire, R reload, 1 revolver, 2 shotgun, F launch a clay, E open GUNZ at the counter, Space jump, Esc pause/release mouse. Desktop keyboard/mouse and WebGL are required. Click Resume again if the browser requires a second gesture to capture the mouse.
 
 The Node server owns movement, ammunition, fire rate, barrel-direction hit detection and respawns. The local client renders each shot as a fast physical-looking round rather than an instant tracer line. This is an early prototype: no accounts, persistence, matchmaking, lag compensation or production anti-abuse protections. The arena is intentionally an open base plate for the team's later map/environment work.
 
@@ -47,7 +47,7 @@ Team members can clone the repository, create a branch for their work, and open 
 > Responsibilities are based on the initial discussion and can be updated as the project plan becomes clearer.
 
 ## Vercel
-Import this repository into Vercel. The included vercel.json builds the browser game automatically with node build-static.mjs and serves dist/. This deployment supports local practice. Multiplayer still requires the persistent Node server (node server.mjs); its in-memory rooms and continuous simulation are not deployed as Vercel Functions.
+Import this repository into Vercel. The included vercel.json builds the browser game automatically with node build-static.mjs and serves dist/. LAN play uses a shared Redis directory and direct WebRTC connections. Without the configured directory, the site offers solo practice. The persistent Node server remains an optional alternative.
 
 The small rectangular skeet machine ahead of spawn launches one clay when you press F. Flights go upward and away with varied left/right angles (about ±18 degrees), varied elevation (about 32–48 degrees), and a faster 14-unit/second launch, gravity and drag. Shot clays break into pooled tumbling fragments that inherit momentum and bounce on the floor; missed clays break when they land. Launches are limited to one per 650 ms and three active clays. Multiplayer shares the machine within each room; practice flight timers stop when paused.
 
@@ -60,9 +60,11 @@ Ejected shotgun shells use world-space gravity, tumble, bounce and settle on the
 
 Enter a username (1–16 characters) before joining. A first-party `dustline_username` cookie remembers it for one year on that browser; it uses SameSite=Lax and Secure on HTTPS. The cookie stores only the display name, not admin access. Press Esc to return to the menu. Q/E no longer lean.
 
-Open **Admin**, enter **0310**, and choose **Unlock**. On a multiplayer server, code validation happens on the server and yields an eight-hour admin session. Five login attempts per minute are allowed per connection IP. The server can override the default code with `ADMIN_CODE`. The panel lists players across rooms, shows whether they are playing or in the menu, and refreshes every four seconds. **Join** switches into that player's room and removes your previous player session. A full room or a player who has left produces an error without removing your current session.
+Open **Admin**, enter **0310**, and choose **Unlock**. On a multiplayer server, code validation happens on the server and yields an eight-hour admin session. Five login attempts per minute are allowed per connection IP. The server can override the default code with `ADMIN_CODE`. The panel lists players and refreshes every four seconds. Press **Play** to appear in the list. Only an admin can select **Join** beside another player; there are no lobby-code controls. Each game supports two players and keeps all three bean cans.
 
-After joining a game, the panel offers **No recoil**, **Infinite ammo**, and **Infinite health** for your player only. Ammo and health are enforced on the server. Infinite health restores you to 100 HP and prevents damage; infinite ammo cancels reloads and keeps both weapons loaded. Turning the switches off restores normal behavior. Powers carry across admin room switches. Solo practice supports the same local switches and damageable, respawning practice characters, but cannot list visitors or join other browsers.
+After pressing Play, the panel offers **Get all weapons**, **No recoil**, **Infinite ammo**, **Infinite health**, **No shot cooldown**, and **Full auto** for your player. With Admin unlocked, press **B** during gameplay to select ammo for the equipped weapon for free. Full auto holds the trigger while the left mouse button is down; enabling no shot cooldown removes normal gun timing. Automated fire is bounded at 20 shots per second. Infinite ammo and health retain their existing behavior. Weapon grants and ammo selection do not spend beans.
+
+**Reset cookie** beside a player's Join button clears only that player's saved DUSTLINE username when their browser next polls. It does not erase beans, other site cookies, or their current game. They will enter a username again on their next page load. The server checks admin access, targets the selected player, and retains the command until their browser acknowledges it.
 
 Players have 100 HP. The upper capsule above 1.38 units counts as the head; hat decoration does not extend the hitbox.
 
@@ -74,24 +76,29 @@ Players have 100 HP. The upper capsule above 1.38 units counts as the head; hat 
 | Birdshot | 2 per pellet | 2 per pellet | 50 of 80 pellets per barrel |
 | Slug | 100 | 100 | 1 |
 
-## Connecting Vercel to multiplayer
+## Vercel LAN play (no player installation)
 
-Vercel builds the browser files. The existing continuous Node simulation still needs one persistent Node.js 22+ server running `node server.mjs`. Use one instance: rooms and sessions are in memory.
+1. Connect an Upstash Redis database to the Vercel project. Use the Free plan if available; do not enable paid upgrades automatically. The database keeps expiring player sessions, codes, admin sessions and connection messages. No gameplay positions or shots are sent through Redis.
+2. The integration must provide `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, or the compatible `KV_REST_API_URL` and `KV_REST_API_TOKEN`, to the Vercel Function. These credentials stay server-side. Redeploy after connecting it.
+3. Leave `MULTIPLAYER_URL` unset for Vercel LAN mode. `GET /api/multiplayer` returns `{multiplayer:true,transport:"webrtc"}`. An unconfigured database returns 503 with `NOT_CONFIGURED` and the game falls back to local practice.
+4. Enter a username and press **Play**. This creates a discoverable game with the original three bean cans, GUNZ shop and physics.
+5. The admin unlocks **Admin**, finds the other player and presses **Join**. Both the directory and game authority enforce a two-player limit; joining another game requires admin access.
+6. Damage, respawns, bean rewards, walls and movement are shared. Keep the hosting player's browser open. **Leave** returns to local practice. A failed join displays an error.
 
-1. Deploy this repository's Node server with start command `node server.mjs` and the host-provided `PORT`.
-2. On that server, set `ALLOWED_ORIGINS=https://team-game-project.vercel.app` (comma-separated if additional frontend origins are needed), and optionally `ADMIN_CODE` (defaults to `0310`).
-3. In the Vercel project's build environment, set `MULTIPLAYER_URL` to that server's HTTPS origin and redeploy. `build-static.mjs` writes it into `dist/runtime-config.js`.
-4. Confirm the menu reads **Multiplayer server connected**. With no server URL and no local API, it explicitly shows **Solo practice**.
 
-No database or npm dependencies are required. The server host must support long-lived SSE connections; a static-only deployment cannot provide live multiplayer or cross-browser presence.
+The browsers still need internet access to the Vercel directory for discovery and periodic presence checks. Gameplay uses LAN candidates only (`iceServers: []`): no public STUN server or TURN relay is configured. The service does not scan the local network. Wi-Fi client isolation, blocked WebRTC or a VPN can prevent direct connections even on the same Wi-Fi; a failed join reports this instead of silently putting players in separate games. The admin directory lists site players, but direct joining still requires a reachable LAN peer.
 
-## Same-Wi-Fi multiplayer
+Lobby sessions expire after 90 seconds without a heartbeat. Only the username and solo-practice bean progress are remembered between page loads; LAN progress lasts for the current session. Directory tokens and Redis credentials are not exposed in player lists. The host browser is authoritative, so this friend-game prototype does not defend against a modified host client. Free service usage limits still apply to directory requests; reaching them can interrupt discovery and presence.
 
-On the host computer, double-click `start-lan.cmd` (Windows with Node.js 22+ installed), or run `node server.mjs`. Keep that process running. It prints a **Same-Wi-Fi join address** such as `http://192.168.1.108:3000`.
+### Optional persistent Node server
 
-Everyone on the same network opens that address in a desktop browser and enters a username. No room/lobby input is needed; the server automatically places players together, with overflow after 12 players. The host can also use `http://localhost:3000`. If Windows asks about Node.js network access, allow it on your private home network. The Vercel address is a separate static practice site; use the host's local address for Wi-Fi multiplayer. The local address can change when the host reconnects to Wi-Fi.
+The existing `node server.mjs` mode still supports a continuously hosted authoritative server, including internet multiplayer. It is separate from the no-install Vercel LAN mode:
 
-The Admin button is a compact secondary button matching the menu.
+1. Deploy one Node.js 22+ instance with start command `node server.mjs` and the host-provided `PORT`.
+2. On that server, set `ALLOWED_ORIGINS=https://team-game-project.vercel.app` (comma-separated if needed), and optionally `ADMIN_CODE` (defaults to `0310`).
+3. Set Vercel's `MULTIPLAYER_URL` to that server's HTTPS origin and redeploy.
+
+No npm dependencies are required in either mode. Node hosting must support long-lived SSE connections. `node --test tests/*.test.mjs` validates admin-only joining, cookie resets, loadouts, firing rules, admin authorization, room simulation and networking lifecycle.
 
 ## Projectile combat and can characters
 
@@ -106,4 +113,17 @@ Can damage openings now scale with each projectile's ammo damage: tiny birdshot,
 
 The weathered wooden shack sits on the left side of the range. Walk through the front doorway, face the blue penguin behind the counter, and press **E**. The wooden ammo board sells permanent ammo unlocks: small revolver rounds cost 400 beans, birdshot costs 450, and slugs cost 500. Standard revolver rounds and buckshot are starter ammo; owned types can be equipped again at the shop without another charge. Pick up the shotgun before buying its ammo.
 
-Each can elimination pays 125 beans; each newly broken wall block pays one bean. Empty holes and repeat damage to an already dead can pay nothing. Reloads stay free. The old B modification shortcut no longer bypasses purchases. Beans and unlocks survive deaths; solo-practice progress also survives reloads in this browser. LAN balances are held by the server for the current player session, and proximity, health, inventory and funds are checked on the server. Vercel remains solo practice until the separately prepared multiplayer backend is activated.
+Each can elimination pays 125 beans; each newly broken wall block pays one bean. Empty holes and repeat damage to an already dead can pay nothing. Reloads stay free. B opens free ammo selection only while Admin is unlocked; regular players use the shop. Beans and unlocks survive deaths; solo-practice progress also survives reloads in this browser. LAN balances are held by the server for the current player session, and proximity, health, inventory and funds are checked on the server. Vercel LAN play requires the shared directory configuration described above.
+
+### Checking a connection
+
+Open `/connection-check.html` to test player registration without WebGL. The admin check asks for the admin code, registers two players, verifies that joining requires admin access, joins directly, confirms all three cans are present, and checks live game updates. It then closes both test players and logs out the test admin session. A successful check in one browser does not verify Wi-Fi reachability between separate computers.
+
+
+### Startup and bean jumpscare
+
+Play requests mouse capture during the click; slow or unavailable audio no longer blocks starting a game. Admin weapon and power buttons can prepare your session directly after you enter a username, without pressing Play first.
+
+Bean jumpscares never trigger during normal gameplay. Only the unlocked Admin menu has a **Bean jumpscare** preview, limited to once per 25 seconds. It closes after 1.4 seconds, with Escape/Dismiss, or when Admin is locked. Reduced-motion preferences disable the pop-in animation.
+
+Play waits for connection detection before starting, so an early click cannot accidentally create an undiscoverable solo game. Temporary directory errors can be retried with Play. Changing games waits for any previous signaling poll to finish, preserving the new host handshake. Joining another player requires server-verified admin access; ordinary players simply press Play and remain available for an admin to join.

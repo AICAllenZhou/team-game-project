@@ -11,26 +11,57 @@ test('admin authentication, presence, own powers, room joining, logout and input
   await post('join',{name:'   '},400);await post('join',{name:'a'.repeat(17)},400);await post('join',null,400);
   await post('admin/players',{},403);await post('admin/login',{code:'wrong'},403);
   const {adminToken}=await post('admin/login',{code:'0310'});
-  const lanA=await post('join',{name:'WiFi A'}),lanB=await post('join',{name:'WiFi B'});
-  assert.equal(lanA.room,lanB.room);assert.equal((await state(lanA.token)).players.length,2);
-  await post('leave',{token:lanA.token},204);await post('leave',{token:lanB.token},204);
-  const a=await post('join',{name:'Owner',room:'one',powers:{infiniteHp:true}}),b=await post('join',{name:'Friend',room:'two'});
+  const a=await post('join',{name:'Owner',room:'one',powers:{infiniteHp:true},adminToken}),b=await post('join',{name:'Friend',room:'two',adminToken});
   let mine=(await state(a.token)).players[0];assert.equal(mine.powers.infiniteHp,false);
   await post('admin/powers',{token:a.token,powers:{infiniteHp:true}},403);
   await post('input',{token:b.token,active:true},204);
-  const list=await post('admin/players',{adminToken});assert.equal(list.rooms.length,2);assert.equal(list.rooms.find(r=>r.name==='two').players[0].active,true);assert.equal(JSON.stringify(list).includes(a.token),false);
+  const list=await post('admin/players',{adminToken});assert.equal(list.rooms.length,2);assert.equal(list.rooms.find(r=>r.name==='two').players[0].active,true);assert.equal('joinCode' in list.rooms.find(r=>r.name==='two').players[0],false);assert.equal(JSON.stringify(list).includes(a.token),false);
   mine=await post('admin/powers',{token:a.token,adminToken,powers:{infiniteHp:true,infiniteAmmo:true,noRecoil:true}});assert.equal(mine.powers.noRecoil,true);
   for(let i=0;i<8;i++){await post('fire',{token:a.token,direction:{x:0,y:1,z:0}},204);await new Promise(r=>setTimeout(r,250));}
   assert.equal((await state(a.token)).players[0].ammo,6);
   assert.equal((await state(b.token)).players[0].powers.infiniteHp,false);
   await post('join',{name:'Owner',targetId:b.id,previousToken:a.token},403);
-  const joined=await post('join',{name:'Owner',targetId:b.id,previousToken:a.token,adminToken});assert.equal(joined.room,'two');assert.equal((await state(joined.token)).players.length,2);
+  await post('join',{name:'Owner',targetId:b.id,joinCode:b.joinCode,previousToken:a.token},403);
+  await post('join',{name:'Owner',targetId:'',joinCode:b.joinCode,previousToken:a.token},403);
+  const joined=await post('join',{name:'Owner',targetId:b.id,previousToken:a.token,adminToken});assert.equal(joined.room,'two');assert.equal(joined.id,a.id);assert.equal(joined.joinCode,a.joinCode);assert.equal((await state(joined.token)).players.length,2);
   assert.equal((await state(joined.token)).players.find(p=>p.id===joined.id).powers.infiniteAmmo,true);
   await post('input',{token:a.token},401);await post('join',{name:'Owner',targetId:'gone',adminToken},404);
   await post('admin/powers',{token:joined.token,adminToken,powers:{} });await post('fire',{token:joined.token,direction:{x:0,y:1,z:0}},204);assert.equal((await state(joined.token)).players.find(p=>p.id===joined.id).ammo,5);
   const allowed=await fetch('http://localhost:3101/api/health',{headers:{Origin:'https://team-game-project.vercel.app'}});assert.equal(allowed.status,200);assert.equal(allowed.headers.get('access-control-allow-origin'),'https://team-game-project.vercel.app');
   assert.equal((await fetch('http://localhost:3101/api/health',{headers:{Origin:'https://other.example'}})).status,403);
+  for(const file of ['lan-client.js','room-engine.mjs','projectile-physics.mjs','shop.mjs'])assert.equal((await fetch('http://localhost:3101/'+file)).status,200);
   await post('leave',{token:b.token},204);assert.equal((await post('admin/players',{adminToken})).rooms[0].players.length,1);
   await post('admin/logout',{adminToken},204);await post('admin/players',{adminToken},403);
+  await post('join',{name:'Owner',room:joined.room,previousToken:joined.token,adminToken},403);
+
+  await post('join',{name:'Owner',targetId:joined.id,adminToken},403);
+ }finally{child.kill();}
+});
+
+test('regular players host shared cans and only an admin can join',async()=>{
+ const child=spawn(process.execPath,['server.mjs'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:'3102',ADMIN_CODE:'0310'},stdio:['ignore','pipe','pipe']});
+ try{
+  await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);child.once('exit',()=>reject(Error('server exited')));});
+  async function post(path,body,status=200){const r=await fetch('http://localhost:3102/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});assert.equal(r.status,status,await(r.status===status?Promise.resolve(''):r.text()));return r.status===200?r.json():null;}
+
+  const {adminToken}=await post('admin/login',{code:'0310'});
+  const host=await post('join',{name:'Host'});
+  await post('join',{name:'Guest',joinCode:host.lobbyCode},403);
+  assert.match(host.lobbyCode,/^[A-HJ-NP-Z2-9]{6}$/);
+  const guest=await post('join',{name:'Guest',targetId:host.id,adminToken});
+  assert.equal(host.room,guest.room);assert.equal(host.lobbyCode,guest.lobbyCode);
+  await post('join',{name:'Third',targetId:host.id,adminToken},409);
+  const list=await post('admin/players',{adminToken});assert.equal(list.rooms.length,1);assert.equal(list.rooms[0].players.length,2);
+  const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),3000);
+  try{const r=await fetch('http://localhost:3102/api/events?token='+guest.token,{signal:controller.signal});const reader=r.body.getReader();let buffer='';
+   while(true){const {value,done}=await reader.read();assert.equal(done,false);buffer+=new TextDecoder().decode(value);const match=buffer.match(/event: state\ndata: ([^\n]+)/);if(match){const state=JSON.parse(match[1]);assert.equal(state.players.length,2);assert.equal(state.cans.length,3);break;}}
+  }finally{clearTimeout(timer);controller.abort();}
+  await post('admin/loadout',{token:guest.token,allWeapons:true},403);
+  const loaded=await post('admin/loadout',{token:guest.token,adminToken,allWeapons:true,weapon:'revolver',mod:'small'});assert.equal(loaded.hasShotgun,true);assert.equal(loaded.mods.revolver,'small');
+  await post('admin/resetCookie',{targetId:host.id},403);
+  await post('admin/resetCookie',{targetId:host.id,adminToken});
+  assert.equal((await post('admin/players',{adminToken})).rooms[0].players.find(p=>p.id===host.id).cookieResetPending,true);
+  await post('leave',{token:guest.token},204);
+  await post('join',{name:'Replacement',targetId:host.id,adminToken});
  }finally{child.kill();}
 });

@@ -12,7 +12,7 @@ export function applyDamage(victim,amount,now){
  return true;
 }
 export function setPowers(player,powers){
- player.powers={noRecoil:powers?.noRecoil===true,infiniteAmmo:powers?.infiniteAmmo===true,infiniteHp:powers?.infiniteHp===true};
+ player.powers={noRecoil:powers?.noRecoil===true,infiniteAmmo:powers?.infiniteAmmo===true,infiniteHp:powers?.infiniteHp===true,noCooldown:powers?.noCooldown===true,fullAuto:powers?.fullAuto===true};
  if(player.powers.infiniteHp){player.hp=MAX_HP;player.deadUntil=0;}
  if(player.powers.infiniteAmmo){
   player.reloadUntil=0;player.ammo=ammoProfile(player.weapon,player.mods).capacity;

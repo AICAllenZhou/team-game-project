@@ -9,8 +9,9 @@
  <p id="connection-status" class="muted" role="status"></p>
  <form id="join-form">
   <label for="username">Username</label><input id="username" name="username" maxlength="16" required autocomplete="nickname" placeholder="Choose your name">
-   <button id="play" type="submit" disabled>Join</button>
+  <button id="play" type="submit" disabled>Play</button>
  </form>
+ <button id="leave-lobby" class="secondary" type="button" hidden>Leave</button>
  <p id="menu-message" role="status"></p>
  <button id="admin-open" class="secondary" type="button">Admin</button>
 </main>
@@ -19,12 +20,14 @@
  <form id="admin-login"><label for="admin-code">Admin code</label><input id="admin-code" type="password" inputmode="numeric" autocomplete="off" maxlength="32" required><button type="submit">Unlock</button></form>
  <p id="admin-message" role="status"></p>
  <div id="admin-controls" hidden>
+  <button id="all-weapons" type="button">Get all weapons</button><button id="bean-scare-preview" class="secondary" type="button">Bean jumpscare</button>
   <h3>Powers</h3>
-  <fieldset id="power-controls" disabled><label><input id="no-recoil" type="checkbox"> No recoil</label><label><input id="infinite-ammo" type="checkbox"> Infinite ammo</label><label><input id="infinite-hp" type="checkbox"> Infinite health</label></fieldset>
+  <fieldset id="power-controls" disabled><label><input id="no-recoil" type="checkbox"> No recoil</label><label><input id="infinite-ammo" type="checkbox"> Infinite ammo</label><label><input id="infinite-hp" type="checkbox"> Infinite health</label><label><input id="no-cooldown" type="checkbox"> No shot cooldown</label><label><input id="full-auto" type="checkbox"> Full auto</label></fieldset>
   <div class="panel-heading"><h3>Players online</h3><button id="admin-refresh" class="secondary" type="button">Refresh</button></div>
   <div id="player-list" aria-live="polite"></div><button id="admin-lock" class="secondary" type="button">Lock panel</button>
  </div>
 </section>
+<section id="admin-ammo" class="panel" hidden><div class="panel-heading"><h2>Ammo</h2><button id="admin-ammo-close" class="secondary" type="button">Close</button></div><div id="admin-ammo-options"></div><p id="admin-ammo-message" role="status"></p></section>
 <div id="hud" aria-live="polite"></div>
 <script type="module" src="bootstrap.js"></script>
 </body>

@@ -4,12 +4,13 @@ import {spawn} from 'node:child_process';
 import {SHOTGUN_PICKUP} from '../weapons.mjs';
 import {traceShot} from '../simulation.mjs';
 test('multiplayer shares room state, isolates rooms, enforces ammo and reload',async()=>{
- const child=spawn(process.execPath,['server.mjs'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:'3099'},stdio:['ignore','pipe','pipe']});
+ const child=spawn(process.execPath,['server.mjs'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:'3099',ADMIN_CODE:'0310'},stdio:['ignore','pipe','pipe']});
  const controllers=[];
  try{
  await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);child.once('exit',()=>reject(Error('server exited')));});
  const post=async(path,body)=>{const r=await fetch('http://localhost:3099/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});assert.ok(r.ok);return r.status===204?null:r.json();};
- const a=await post('join',{name:'A',room:'test'}),b=await post('join',{name:'B',room:'test'}),c=await post('join',{name:'C',room:'other'});
+ const {adminToken}=await post('admin/login',{code:'0310'});
+ const a=await post('join',{name:'A',room:'test',adminToken}),b=await post('join',{name:'B',room:'test',adminToken}),c=await post('join',{name:'C',room:'other',adminToken});
  async function state(token){const controller=new AbortController();controllers.push(controller);const timer=setTimeout(()=>controller.abort(),3000);try{const r=await fetch('http://localhost:3099/api/events?token='+token,{signal:controller.signal});const reader=r.body.getReader();let text='';while(true){const {value,done}=await reader.read();if(done)throw Error('Stream ended');text+=new TextDecoder().decode(value);const match=text.match(/event: state\ndata: ([^\n]+)/);if(match)return JSON.parse(match[1]);}}finally{clearTimeout(timer);controller.abort();}}
  assert.equal((await state(a.token)).players.length,2);assert.equal((await state(c.token)).players.length,1);
  await post('fire',{token:a.token});await post('fire',{token:a.token});let s=await state(a.token);assert.equal(s.players.find(p=>p.id===a.id).ammo,5);
