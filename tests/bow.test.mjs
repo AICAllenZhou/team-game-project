@@ -26,9 +26,9 @@ test('arrows have visible travel time and a tip-sized opening at every charge',(
   const profile=chargedArrow(charge),p=launchProjectile({origin:{x:10,y:1,z:8},direction:{x:0,y:0,z:-1}},profile,{weapon:'bow'});
   const targets=[{id:'target',x:10,y:0,z:0,hp:100}],hits=[];
   for(let t=0;t<.3&&p.alive;t+=.01)hits.push(...advanceProjectile(p,.01,targets,[],null));
-  assert.equal(hits.length,1);assert.equal(hits[0].hit,'target');assert.equal(hits[0].holeRadius,.035);assert.ok(hits[0].damage<=60);assert.equal(hits[0].stuck,true);
+  assert.equal(hits.length,1);assert.equal(hits[0].hit,'target');assert.equal(hits[0].holeRadius,.035);assert.ok(hits[0].damage<=100);assert.equal(hits[0].stuck,charge===0);
  }
- assert.equal(chargedArrow(0).headDamage,60);assert.equal(chargedArrow(1).headDamage,100);
+ assert.equal(chargedArrow(0).headDamage,100);assert.equal(chargedArrow(1).headDamage,100);
 });
 test('bow starts loading the next arrow in the fire command without a second network round trip',()=>{
  let time=10000;const events=[],e=createRoomEngine({now:()=>time,random:()=>.8,emit:(type,data)=>events.push({type,data})});e.addPlayer({id:'p',name:'Bow'});e.setPlayerLoadout('p',{revision:'bow',hasBow:true,mods:{}});e.command('p','equip',{weapon:'bow'});

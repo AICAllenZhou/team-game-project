@@ -1,6 +1,17 @@
 import * as THREE from './vendor/three.module.js';
 import {ARROW_TIP_Z} from './bow-view.js';
 const forward=new THREE.Vector3(0,0,-1),face=new THREE.Vector3(0,0,1),temp=new THREE.Vector3();
+export function createBowGuide(scene){
+ const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(181*3),3));geometry.setDrawRange(0,0);
+ const guide=new THREE.Line(geometry,new THREE.LineBasicMaterial({color:0xffdfa5,transparent:true,opacity:.55,depthWrite:false,toneMapped:false}));
+ guide.name='local-bow-aiming-line';guide.frustumCulled=false;guide.visible=false;scene.add(guide);return guide;
+}
+export function placeBowGuide(guide,path,charge){
+ guide.visible=charge>.1&&path.length>1;if(!guide.visible)return;
+ const attribute=guide.geometry.attributes.position,count=Math.min(attribute.count,path.length);
+ for(let i=0;i<count;i++)attribute.setXYZ(i,path[i].x,path[i].y,path[i].z);
+ attribute.needsUpdate=true;guide.geometry.setDrawRange(0,count);
+}
 export function createBowMarker(scene){
  const marker=new THREE.Group();marker.name='local-bow-impact-marker';marker.visible=false;
  const white=new THREE.MeshBasicMaterial({color:0xffedc5,transparent:true,opacity:.95,depthWrite:false,side:THREE.DoubleSide,toneMapped:false,polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
@@ -29,7 +40,7 @@ export function seatArrow(arrow,result,victim=null){
   else{const radius=Math.hypot(point.x,point.z)||1;point.x*=.422/radius;point.z*=.422/radius;}
   body.localToWorld(point);
  }
- arrow.position.copy(point).addScaledVector(direction,ARROW_TIP_Z+.025);
+ arrow.position.copy(point).addScaledVector(direction,ARROW_TIP_Z+THREE.MathUtils.clamp(result.embedDepth??.18,.1,.4));
  arrow.quaternion.setFromUnitVectors(forward,direction);arrow.userData.stuckArrow=true;
  if(victim){victim.updateWorldMatrix(true,false);victim.attach(arrow);}
  return arrow.quaternion.clone();

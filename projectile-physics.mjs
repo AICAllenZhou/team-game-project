@@ -1,7 +1,7 @@
 import {traceShot,PROJECTILE_SPEED} from './simulation.mjs';
 
 export function launchProjectile(ray,profile,metadata={}){
- return {...metadata,position:{...ray.origin},origin:{...ray.origin},direction:{...ray.direction},profile:{...profile},speed:profile.speed??(metadata.weapon==='shotgun'?220:PROJECTILE_SPEED),remaining:70,damageScale:1,penetration:profile.penetration,pierced:[],alive:true};
+ return {...metadata,position:{...ray.origin},origin:{...ray.origin},direction:{...ray.direction},profile:{...profile},speed:profile.speed??(metadata.weapon==='shotgun'?220:PROJECTILE_SPEED),remaining:profile.range??70,damageScale:1,penetration:profile.penetration,pierced:[],alive:true};
 }
 
 // Sweep only the distance traveled this step. Targets are tested at their
@@ -11,12 +11,29 @@ export function advanceProjectile(p,dt,players,clays,walls,{damageWalls=true}={}
  const velocity=ballisticSegment(p,dt);
  let travel=Math.min(p.remaining,p.speed*Math.max(0,dt));
  const shift=d=>{for(const a of ['x','y','z'])p.position[a]+=p.direction[a]*d;p.remaining-=d;travel-=d;};
+ const slow=rate=>{p.speed*=rate;travel*=rate;if(velocity)for(const a of ['x','y','z'])velocity[a]*=rate;};
  for(let safety=0;p.alive&&travel>1e-7&&safety<32;safety++){
   const hit=traceShot(p.position,p.direction,players.filter(target=>!p.pierced.includes(target.id)),clays,walls);
   if(!hit.surface||hit.distance>travel){shift(travel);break;}
   shift(Math.max(0,hit.distance));
-  const result={...hit,origin:{...p.origin},direction:{...p.direction},weapon:p.weapon,shotId:p.shotId,shooter:p.shooter,holeRadius:p.profile.canHoleRadius??(.012+.25*(p.profile.damage/100)**2),wallChanges:[],damage:(hit.headshot?p.profile.headDamage:p.profile.damage)*p.damageScale,speed:p.speed,arrow:!!p.profile.arrow};
-  if(p.profile.arrow){result.stuck=true;result.stopped=true;impacts.push(result);p.alive=false;break;}
+  const result={...hit,origin:{...p.origin},direction:{...p.direction},weapon:p.weapon,shotId:p.shotId,shooter:p.shooter,holeRadius:p.profile.canHoleRadius??(.012+.25*(p.profile.damage/100)**2),wallChanges:[],damage:hit.headshot&&p.profile.arrow?p.profile.headDamage:(hit.headshot?p.profile.headDamage:p.profile.damage)*p.damageScale,speed:p.speed,arrow:!!p.profile.arrow};
+  if(p.profile.arrow){
+   result.embedDepth=p.profile.embedDepth??.18;
+   result.impactSound=hit.surface!=='voxel'||p.arrowWallId!==hit.wallId;
+   if(hit.surface==='voxel')p.arrowWallId=hit.wallId;
+   // The aiming cross marks the first contact without drilling the preview.
+   // A real charged arrow spends one point per block, two per can.
+   if(damageWalls&&hit.surface==='voxel'&&p.penetration>0){
+    result.wallChanges.push({wallId:hit.wallId,removed:walls.damage(hit,0)});
+    p.penetration--;p.damageScale*=.94;slow(.96);result.penetrated=true;
+   }else if(damageWalls&&hit.hit&&p.penetration>=2){
+    const target=players.find(target=>target.id===hit.hit);result.exitPoint=canExitPoint(hit.point,p.direction,target);result.penetrated=!!result.exitPoint;
+    if(result.penetrated){p.penetration-=2;p.pierced.push(hit.hit);p.damageScale*=.9;slow(.9);}
+   }
+   result.stopped=!result.penetrated;result.stuck=result.stopped;result.speed=p.speed;impacts.push(result);
+   if(result.stopped){p.alive=false;break;}
+   shift(Math.min(.00001,travel));continue;
+  }
   if(hit.surface==='voxel'&&damageWalls){
    const radius=p.penetration===p.profile.penetration?p.profile.chip:(p.profile.core??0);
    const removed=walls.damage(hit,radius,p.direction);result.wallChanges.push({wallId:hit.wallId,removed});
@@ -56,10 +73,12 @@ export function advanceVisualProjectile(p,dt){
 
 // Read-only ballistic aiming preview. This uses the same swept segments and
 // collision queries as a live arrow, without modifying targets or voxels.
-export function predictArrowImpact(ray,profile,players=[],clays=[],walls=null){
+export function predictArrowImpact(ray,profile,players=[],clays=[],walls=null,path=null){
  const p=launchProjectile(ray,profile,{weapon:'bow'});
+ if(path){path.length=0;path.push({...p.position});}
  for(let i=0;i<180&&p.alive;i++){
   const hits=advanceProjectile(p,.05,players,clays,walls,{damageWalls:false});
+  if(path)path.push({...p.position});
   if(hits.length)return hits[0];
  }
  return null;

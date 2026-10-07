@@ -17,12 +17,12 @@ export function createBow(parent,{firstPerson=false}={}){
  const string=new THREE.Line(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(51),3)),new THREE.LineBasicMaterial({color:0xd2c9ac}));g.add(string);
  const arrow=createArrow();g.add(arrow);
  const drawHand=new THREE.Mesh(new THREE.SphereGeometry(.105,10,7),new THREE.MeshStandardMaterial({color:0xd4b58f,roughness:.8}));g.add(drawHand);
- g.userData={type:'bow',muzzleObject:arrow,muzzleZ:ARROW_TIP_Z,muzzleY:0,string,rope:createBowString(),arrow,drawHand,limbs,limbBase:limbs.geometry.attributes.position.array.slice(),limbCharge:0,releaseAge:Infinity,firstPerson,visibility:1};
- if(firstPerson)g.traverse(m=>{if(m.material){m.material=m.material.clone();m.material.transparent=true;m.material.depthWrite=false;}});
+ g.userData={type:'bow',muzzleObject:arrow,muzzleZ:ARROW_TIP_Z,muzzleY:0,string,rope:createBowString(),arrow,drawHand,limbs,limbBase:limbs.geometry.attributes.position.array.slice(),limbCharge:0,releaseAge:Infinity,firstPerson,visibility:firstPerson?.55:1};
+ if(firstPerson)g.traverse(m=>{if(m.material){m.material=m.material.clone();m.material.transparent=true;m.material.depthWrite=false;m.material.opacity=.55;}});
  animateBow(g,0,true);return g;
 }
 export function releaseBow(g){g.userData.releaseAge=0;g.userData.arrow.visible=false;releaseBowString(g.userData.rope);}
-export function resetBow(g){const d=g.userData;d.rope=createBowString();d.limbCharge=0;d.releaseAge=Infinity;if(d.firstPerson)g.traverse(m=>{if(m.material)m.material.opacity=1;});animateBow(g,0,true);}
+export function resetBow(g){const d=g.userData;d.rope=createBowString();d.limbCharge=0;d.releaseAge=Infinity;if(d.firstPerson)g.traverse(m=>{if(m.material)m.material.opacity=.55;});animateBow(g,0,true);}
 export function animateBow(g,charge,loaded=true,{dt=1/60,reload=-1}={}){
  const d=g.userData,c=Math.max(0,Math.min(1,charge)),loading=reload>=0&&reload<1;
  d.releaseAge+=dt;d.limbCharge+=(c-d.limbCharge)*(1-Math.exp(-45*dt));
@@ -45,7 +45,7 @@ export function animateBow(g,charge,loaded=true,{dt=1/60,reload=-1}={}){
 const eyeScratch=new THREE.Vector3();
 export function updateBowVisibility(g,eye,charge){
  const d=g.userData;if(!d.firstPerson)return 1;
- const alpha=1-ease((charge-.7)/.24);d.visibility=alpha;
+ const alpha=.55*(1-ease((charge-.7)/.24));d.visibility=alpha;
  g.traverse(m=>{if(m.material)m.material.opacity=alpha;});
  d.drawHand.getWorldPosition(eyeScratch);
  const distance=eyeScratch.distanceTo(eye),handAlpha=ease((distance-.36)/.22);
