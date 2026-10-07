@@ -97,7 +97,10 @@ export function move(p,input,dt,{mapId='practice'}={}){
  p.vx=targetX+(vx-targetX)*decay;p.vz=targetZ+(vz-targetZ)*decay;
  p.x=Math.max(-limitX,Math.min(limitX,nextX));p.z=Math.max(-limitZ,Math.min(limitZ,nextZ));
  if(p.x!==nextX)p.vx=0;if(p.z!==nextZ)p.vz=0;
- if(input.jump&&(p.grounded||p.y===floor))p.vy=5;
+ const jump=!!input.jump,pressed=jump&&!p.jumpHeld;p.jumpHeld=jump;
+ if(pressed&&(p.grounded||p.y===floor)&&(p.vy||0)<=0)p.vy=5;
+ // Contact is recomputed after integration; it cannot stay latched in mid-air.
+ p.grounded=false;
  p.vy=Number.isFinite(p.vy)?p.vy:0;p.y=Math.max(floor,p.y+p.vy*dt-7.5*dt*dt);p.vy-=15*dt;if(p.y===floor)p.vy=0;if(!duel)collideShop(p,shopOld);
 }
 export function rayHit(origin,direction,target){

@@ -119,7 +119,7 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
   function fire(player, data, time) {
     if (mapId==='duel'&&phase!=='active')return;
     if (player.hp <= 0 || player.reloadUntil || player.ammo < WEAPONS[player.weapon].cost) return;
-    const ready = player.weapon === 'bow'? time-player.lastShot>=750 : player.weapon === 'shotgun'
+    const ready = player.weapon === 'bow'? time-player.lastShot>=WEAPONS.bow.reload : player.weapon === 'shotgun'
       ? time - player.lastShot >= SHOTGUN_INTERVAL
       : firingMode(time, player.lastShot, data.fan).ready;
     if (!ready&&!player.powers.noCooldown) return;
@@ -139,6 +139,7 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
     const {origin, direction} = ray;
     const shotId = typeof data.shotId === 'string' ? data.shotId.slice(0, 64) : '';
     const profile = player.weapon==='bow'?chargedArrow(player.chargeAt==null?0:(time-player.chargeAt)/BOW_CHARGE_MS):ammoProfile(player.weapon, player.mods);player.chargeAt=null;
+    if(player.weapon==='bow'&&!player.powers.infiniteAmmo)player.reloadUntil=time+WEAPONS.bow.reload;
     const rays = player.weapon === 'shotgun'
       ? shotgunPellets(origin, direction, data.barrelRight, shotId, discharge.barrel, profile)
       : [{origin, direction}];

@@ -53,15 +53,15 @@ test('heavy rounds hit for 75 and penetrate easily; small rounds fly faster; wal
 test('arrows are ballistic, stick to walls and do not penetrate or destroy them',()=>{
  const walls=createVoxelWalls(),p=launchProjectile({origin:{x:14,y:1,z:-5},direction:{x:1,y:0,z:0}},chargedArrow(1),{weapon:'bow'});
  const hit=advanceProjectile(p,.1,[],[],walls)[0];assert.equal(hit.stuck,true);assert.equal(hit.penetrated,undefined);assert.equal(p.alive,false);assert.equal(walls.revision,0);assert.ok(hit.point.y<1);
- assert.equal(chargedArrow(1).damage,100);assert.equal(chargedArrow(0).headDamage,100);assert.ok(chargedArrow(1).speed>chargedArrow(0).speed);
+ assert.equal(chargedArrow(1).damage,60);assert.equal(chargedArrow(0).headDamage,60);assert.ok(chargedArrow(1).speed>chargedArrow(0).speed);
 });
-test('server times bow charge, fully charged body shots kill, and low charge bleeds in three 5-damage bursts',()=>{
+test('server times bow charge, body shots are weaker, and bleed totals three 5-damage bursts',()=>{
  for(const charged of [false,true]){
   const f=fixture(),e=f.engine;e.setPlayerLoadout('a',{revision:'bow',hasBow:true,mods:{}});e.command('a','equip',{weapon:'bow'});
   e.command('a','charge',{active:true});if(charged)f.step(22);
   e.command('a','fire',{muzzleOffset:{x:0,y:-.5,z:-1},direction:{x:0,y:0,z:-1},charge:1});
-  f.step(7);assert.equal(f.player('b').hp,charged?0:15);
-  if(!charged){f.step(24);assert.equal(f.player('b').hp,0);assert.deepEqual(f.events.filter(e=>e.type==='bleed').map(e=>e.data.damage),[5,5,5]);}
+  f.step(7);assert.equal(f.player('b').hp,charged?40:70);
+  f.step(24);assert.equal(f.player('b').hp,charged?25:55);assert.deepEqual(f.events.filter(e=>e.type==='bleed').map(e=>e.data.damage),[5,5,5]);
  }
 });
 
@@ -72,10 +72,10 @@ test('arrow flight follows the same gravity arc across frame rates',()=>{
 });
 
 
-test('undrawn arrow headshots kill and arrows can lodge in the floor',()=>{
+test('undrawn arrow headshots are weaker and arrows can lodge in the floor',()=>{
  const target={id:'can',x:10,y:0,z:3,hp:100};
  const head=launchProjectile({origin:{x:10,y:1.75,z:5},direction:{x:0,y:0,z:-1}},chargedArrow(0),{weapon:'bow'});
- const hit=advanceProjectile(head,.1,[target],[],null)[0];assert.equal(hit.headshot,true);assert.equal(hit.damage,100);assert.equal(hit.stuck,true);
+ const hit=advanceProjectile(head,.1,[target],[],null)[0];assert.equal(hit.headshot,true);assert.equal(hit.damage,60);assert.equal(hit.stuck,true);
  const floor=launchProjectile({origin:{x:10,y:2,z:10},direction:{x:0,y:-1,z:0}},chargedArrow(0),{weapon:'bow'});
  const ground=advanceProjectile(floor,.1,[],[],null)[0];assert.equal(ground.surface,'world');assert.equal(ground.stuck,true);
 });

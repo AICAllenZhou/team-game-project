@@ -48,7 +48,7 @@ export function kickRecoil(s,fan=false){const multiplier=fan?1.12:1;s.velocity=M
 
 export function captureBarrelRay(gun){
  const muzzle=gun.userData.muzzleObject??gun;muzzle.updateWorldMatrix(true,false);
- const origin=muzzle.localToWorld(gun.position.clone().set(0,.025,gun.userData.muzzleZ??-.52));
+ const origin=muzzle.localToWorld(gun.position.clone().set(0,gun.userData.muzzleY??.025,gun.userData.muzzleZ??-.52));
  const direction=gun.position.clone().set(0,0,-1).transformDirection(muzzle.matrixWorld);
  return {origin,direction};
 }

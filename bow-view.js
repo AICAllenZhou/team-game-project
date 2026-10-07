@@ -1,4 +1,7 @@
 import * as THREE from './vendor/three.module.js';
+import {createBowString,stepBowString,releaseBowString} from './bow-string.mjs';
+export const ARROW_TIP_Z=-.52;
+const ease=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
 const wood=new THREE.MeshStandardMaterial({color:0x795134,roughness:.8,flatShading:true});
 const shaft=new THREE.CylinderGeometry(.012,.012,.8,6),tip=new THREE.ConeGeometry(.035,.12,4),feather=new THREE.BoxGeometry(.09,.005,.1);
 const arrowWood=new THREE.MeshStandardMaterial({color:0xc9a46a,roughness:.8}),metal=new THREE.MeshStandardMaterial({color:0x929b9c,metalness:.7,roughness:.4}),fletch=new THREE.MeshStandardMaterial({color:0xdecdb4,side:THREE.DoubleSide});
@@ -9,13 +12,31 @@ export function createArrow(){
 export function createBow(parent){
  const g=new THREE.Group();parent.add(g);
  const curve=new THREE.CatmullRomCurve3([new THREE.Vector3(0,-.63,.12),new THREE.Vector3(0,-.4,-.06),new THREE.Vector3(0,0,-.13),new THREE.Vector3(0,.4,-.06),new THREE.Vector3(0,.63,.12)]);
- g.add(new THREE.Mesh(new THREE.TubeGeometry(curve,16,.023,6,false),wood));
+ const limbs=new THREE.Mesh(new THREE.TubeGeometry(curve,16,.023,6,false),wood);g.add(limbs);
  const grip=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,.19,8),new THREE.MeshStandardMaterial({color:0x34291e}));grip.position.z=-.13;g.add(grip);
- const string=new THREE.Line(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(9),3)),new THREE.LineBasicMaterial({color:0xd2c9ac}));g.add(string);
- const arrow=createArrow();g.add(arrow);g.userData={type:'bow',muzzleZ:-.5,string,arrow};animateBow(g,0,true);return g;
+ const string=new THREE.Line(new THREE.BufferGeometry().setAttribute('position',new THREE.Float32BufferAttribute(new Float32Array(51),3)),new THREE.LineBasicMaterial({color:0xd2c9ac}));g.add(string);
+ const arrow=createArrow();g.add(arrow);
+ const drawHand=new THREE.Mesh(new THREE.SphereGeometry(.105,10,7),new THREE.MeshStandardMaterial({color:0xd4b58f,roughness:.8}));g.add(drawHand);
+ g.userData={type:'bow',muzzleObject:arrow,muzzleZ:ARROW_TIP_Z,muzzleY:0,string,rope:createBowString(),arrow,drawHand,limbs,limbBase:limbs.geometry.attributes.position.array.slice(),limbCharge:0,releaseAge:Infinity};
+ animateBow(g,0,true);return g;
 }
-export function animateBow(g,charge,loaded=true){
- const draw=.12+Math.max(0,Math.min(1,charge))*.35,p=g.userData.string.geometry.attributes.position;
- p.setXYZ(0,0,-.63,.12);p.setXYZ(1,0,0,draw);p.setXYZ(2,0,.63,.12);p.needsUpdate=true;
- g.userData.arrow.visible=loaded;g.userData.arrow.position.set(.03,.025,draw-.4);g.rotation.z=-.12;
+export function releaseBow(g){g.userData.releaseAge=0;g.userData.arrow.visible=false;releaseBowString(g.userData.rope);}
+export function resetBow(g){const d=g.userData;d.rope=createBowString();d.limbCharge=0;d.releaseAge=Infinity;animateBow(g,0,true);}
+export function animateBow(g,charge,loaded=true,{dt=1/60,reload=-1}={}){
+ const d=g.userData,c=Math.max(0,Math.min(1,charge)),loading=reload>=0&&reload<1;
+ d.releaseAge+=dt;d.limbCharge+=(c-d.limbCharge)*(1-Math.exp(-45*dt));
+ const limb=d.limbCharge,draw=.12+c*.35;
+ const vertices=d.limbs.geometry.attributes.position;
+ for(let i=0;i<vertices.count;i++){const y=d.limbBase[i*3+1];vertices.setY(i,y*(1-limb*.1/.63*(Math.abs(y)/.63)**1.5));}vertices.needsUpdate=true;
+ const pin=loaded&&!loading&&d.releaseAge>.12;
+ const positions=stepBowString(d.rope,dt,pin?c:limb,pin),p=d.string.geometry.attributes.position;
+ p.array.set(positions);p.needsUpdate=true;d.string.frustumCulled=false;
+ const nock=loading?ease((reload-.18)/.72):loaded?1:0;
+ d.arrow.visible=loaded&&!loading||loading&&reload>.12;
+ d.arrow.position.set(.03+(1-nock)*.42,.025-(1-nock)*.46,draw-.4+(1-nock)*.22);
+ d.arrow.rotation.set((1-nock)*-.55,(1-nock)*.6,0);
+ d.drawHand.visible=loading||loaded||d.releaseAge<.16;
+ if(loading){d.drawHand.position.set(0,0,.38).applyEuler(d.arrow.rotation).add(d.arrow.position);}
+ else{d.drawHand.position.set(.055,0,draw+Math.max(0,1-d.releaseAge/.16)*.12);}
+ g.rotation.z=-.12+(loading?Math.sin(Math.PI*reload)*.08:0);
 }
