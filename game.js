@@ -1,5 +1,6 @@
 import {createDuelUI} from './duel-ui.js';
-import {createBow,animateBow,createArrow,releaseBow,resetBow,ARROW_TIP_Z} from './bow-view.js';
+import {createBow,animateBow,createArrow,releaseBow,resetBow,updateBowVisibility,ARROW_TIP_Z} from './bow-view.js';
+import {createBowMarker,placeBowMarker,seatArrow,wobbleStuckArrow} from './bow-feedback.js';
 import {DUEL_SOLIDS} from './arena.mjs';
 import {chargedArrow,BOW_CHARGE_MS} from './weapons.mjs';
 import {preparePlay} from './play-start.js';
@@ -9,7 +10,7 @@ import {createWallet,restoreWallet,canShop,awardBeans,purchaseAmmo} from './shop
 import {createShopView} from './shop-view.js';
 import {createShopMenu} from './shop-ui.js';
 import {createCanCharacter,createCanEffects,resetCan} from './can-characters.js';
-import {launchProjectile,advanceProjectile,advanceVisualProjectile} from './projectile-physics.mjs';
+import {launchProjectile,advanceProjectile,advanceVisualProjectile,predictArrowImpact} from './projectile-physics.mjs';
 import {createMenu} from './menu.js';
 import {installBeanScare} from './bean-scare.js';
 import {API_BASE} from './runtime-config.js';
@@ -122,7 +123,7 @@ function cowboy(color,type=[0xc17a47,0x658c91,0x96799c,0x879466].indexOf(color)%
 const rig=new THREE.Group();camera.add(rig);
 // The revolver is held with one visible hand.
 const wrist=new THREE.Group();wrist.position.set(0,-.13,.07);rig.add(wrist);
-mesh(new THREE.SphereGeometry(.13,8,6),skin,wrist);const revolverGun=revolver(wrist),shotgunGun=createShotgun(wrist,steel,wood,skin,true);const bowGun=createBow(wrist);let gun=revolverGun,weapon='revolver';bowGun.visible=false;
+const viewHand=mesh(new THREE.SphereGeometry(.13,8,6),skin.clone(),wrist);viewHand.material.transparent=true;const revolverGun=revolver(wrist),shotgunGun=createShotgun(wrist,steel,wood,skin,true);const bowGun=createBow(wrist,{firstPerson:true});let gun=revolverGun,weapon='revolver';bowGun.visible=false;
 revolverGun.position.set(0,.13,-.07);bowGun.position.copy(revolverGun.position);shotgunGun.position.copy(revolverGun.position);shotgunGun.visible=false;
 placeWeapon(rig,{});
 const flash=new THREE.Group();gun.add(flash);flash.position.set(0,.025,-.52);flash.visible=false;
@@ -208,7 +209,7 @@ let lookYaw=0,lookPitch=0,handYaw=0,handPitch=0,previousFreeX=0,previousFreeY=0;
 const wristSpring={angle:0,velocity:0};let wristTwist=0,flashLife=0;
 const cameraSpring={angle:0,velocity:0};
 const deathBody=cowboy(0xc17a47);deathBody.visible=false;
-const remoteFlashes=[],stuckArrows=[];
+const remoteFlashes=[],stuckArrows=[],bowMarker=createBowMarker(scene);let nextBowPreview=0;
 const predicted={x:0,y:0,z:8,vy:0,yaw:0,pitch:0};let predictionReady=false,correction={x:0,z:0};
 const smoothPosition=new THREE.Vector3(0,1.5,8);let walkBlend=0,walkPhase=0,inputInFlight=false;
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
@@ -219,7 +220,7 @@ const duelScenery=new THREE.Group();scene.add(duelScenery);duelScenery.visible=f
 for(const solid of DUEL_SOLIDS)box(solid.w,solid.h,solid.d,edge,duelScenery,solid.x,solid.y,solid.z);
 const bowMeter=document.createElement('div');bowMeter.id='bow-charge';bowMeter.hidden=true;document.body.append(bowMeter);
 const duelUI=createDuelUI({choose:data=>post('loadout',data),resume:()=>{menu?.close();captureMouse().catch(()=>syncActivity(false));}});
-function clearArrows(){for(const a of stuckArrows)a.mesh.removeFromParent();stuckArrows.length=0;}
+function clearArrows(){bowMarker.visible=false;nextBowPreview=0;for(const a of stuckArrows)a.mesh.removeFromParent();stuckArrows.length=0;}
 function setMapView(next){
  if(next===mapId)return;mapId=next;wallWorld.setMap(next);wallView.update(0);clearArrows();
  const practice=next==='practice';scenery.visible=grid.visible=practice;duelScenery.visible=!practice;pickupStand.visible=practice;skeetView.machine.visible=practice;
@@ -237,15 +238,15 @@ function actionError(error){
  console.warn(error.message);if(error.status===401)networkError(error);
 }
 function lodgeArrow(result){
- const arrow=createArrow();arrow.position.set(result.point.x,result.point.y,result.point.z);arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1),new THREE.Vector3(result.direction.x,result.direction.y,result.direction.z));arrow.position.addScaledVector(new THREE.Vector3(result.direction.x,result.direction.y,result.direction.z),ARROW_TIP_Z+.045);scene.add(arrow);
+ const arrow=createArrow();scene.add(arrow);
  const victim=result.hit===id?deathBody:peers.get(result.hit)||dummies[practiceCandidates.findIndex(p=>p.id===result.hit)];
- if(victim){victim.updateWorldMatrix(true,false);victim.attach(arrow);}
- stuckArrows.push({mesh:arrow,life:15});if(stuckArrows.length>96)stuckArrows.shift().mesh.removeFromParent();
+ const rest=seatArrow(arrow,result,victim);
+ stuckArrows.push({mesh:arrow,rest,victim,age:0,life:15});if(stuckArrows.length>96)stuckArrows.shift().mesh.removeFromParent();
 }
 function remoteShot(s){
- if(s.id===id||s.pellet)return;
+ if(s.id===id||s.id==='local'||s.pellet)return;
  const g=peers.get(s.id),rate=s.weapon==='shotgun'?.82:1;
- if(s.weapon==='bow'){if(g)releaseBow(g.userData.bow);audio?.arrow?.(s.origin);return;}
+ if(s.weapon==='bow'){if(g)releaseBow(g.userData.bow);audio?.arrow?.(s.origin,s.profile?.charge||0);return;}
  audio?.play(rate,s.origin);
  const f=new THREE.Group();f.position.set(s.origin.x,s.origin.y,s.origin.z);f.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1),new THREE.Vector3(s.direction.x,s.direction.y,s.direction.z));
  const material=new THREE.MeshBasicMaterial({color:0xffd88d,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}),shape=new THREE.Mesh(new THREE.ConeGeometry(.18,.7,7),material);shape.rotation.x=-Math.PI/2;shape.position.z=-.3;f.add(shape);f.scale.setScalar((s.weapon==='shotgun'?2.2:1)*(s.profile?.flash||1));scene.add(f);remoteFlashes.push({mesh:f,material,life:.09});
@@ -260,14 +261,14 @@ function captureAim(){const {origin,direction}=captureBarrelRay(gun);
 }
 function projectileImpact(result,projectile=null){
  const now=gameLoop.now();
- if(result.arrow&&result.stuck)lodgeArrow(result);
+ if(result.arrow&&result.stuck){lodgeArrow(result);audio?.arrowImpact?.(result.point,!!result.hit);}
  if(!online&&result.hit){const victim=practiceCandidates.find(p=>p.id===result.hit);if(victim){const profile=projectile.profile;result.killed=applyDamage(victim,result.damage??(result.headshot?profile.headDamage:profile.damage),now);if(profile.arrow&&!result.killed)practiceBleeds.push({victim,next:now+400,left:3});}}
  if(!online&&awardBeans(local,result))saveWallet();
  if(result.hit){const index=practiceCandidates.findIndex(p=>p.id===result.hit),character=result.hit===id?deathBody:index>=0?dummies[index]:peers.get(result.hit);if(character&&result.hit!==id)canEffects.hit(character,result);if(result.hit===id&&result.killed)deathBody.userData.lastImpact=result;}
  for(const change of result.wallChanges||[])if(!online)wallView.burst(change.wallId,change.removed);
  impactEffect(result,now);
 }
-function sound(){try{if(weapon==='bow')audio?.arrow?.();else audio?.play(weapon==='shotgun'?.82:1);}catch{}}
+function sound(charge=0){try{if(weapon==='bow')audio?.arrow?.(null,charge);else audio?.play(weapon==='shotgun'?.82:1);}catch{}}
 async function post(path,data={}){if(lanClient)return lanClient.command(path,data);const r=await fetch(API_BASE+'/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,...data})});if(!r.ok)throw Object.assign(Error(await r.text()||'Connection lost'),{status:r.status});return r.status===204?null:r.json();}
 function shotEffect(s,predicted=false){
  if(!gameLoop.running)return;
@@ -302,7 +303,7 @@ function applyState(s){if(s.time<=serverTime)return;const previousMap=mapId;setM
  renderer.shadowMap.needsUpdate=true;
  if(!predictionReady||(!local.hp&&mine.hp>0)||local.spawnSerial!==mine.spawnSerial){Object.assign(predicted,{x:mine.x,y:mine.y,z:mine.z,vy:0,vx:0,vz:0,correctionVX:0,correctionVZ:0});correction={x:0,z:0};smoothPosition.set(mine.x,mine.y+1.5,mine.z);predictionReady=true;displayedAim=frozenAim=null;lastShot=-Infinity;bowChargeAt=null;resetBow(bowGun);predicted.jumpHeld=false;wristSpring.angle=wristSpring.velocity=cameraSpring.angle=cameraSpring.velocity=0;freeX=freeY=handYaw=handPitch=0;yaw=lookYaw=mine.yaw;pitch=lookPitch=mine.pitch;clearArrows();for(const p of projectiles)p.round?.removeFromParent();projectiles.length=0;pendingShots.clear();}
  else correction=predictionCorrection(predicted,mine);
- if(local.hp>0&&mine.hp<=0){deathAt=gameLoop.now();resetCan(deathBody);deathBody.position.set(mine.x,mine.y,mine.z);deathBody.rotation.y=mine.yaw;if(deathBody.userData.lastImpact){canEffects.hit(deathBody,deathBody.userData.lastImpact);delete deathBody.userData.lastImpact;}else canEffects.kill(deathBody);bowChargeAt=null;}
+ if(local.hp>0&&mine.hp<=0){deathAt=gameLoop.now();resetCan(deathBody);deathBody.position.set(mine.x,mine.y,mine.z);deathBody.rotation.y=mine.yaw;if(deathBody.userData.lastImpact){if(deathBody.userData.lastImpact.arrow)lodgeArrow(deathBody.userData.lastImpact);canEffects.hit(deathBody,deathBody.userData.lastImpact);delete deathBody.userData.lastImpact;}else canEffects.kill(deathBody);bowChargeAt=null;}
  if(mine.hp>0){deathBody.visible=false;deathBody.position.set(mine.x,mine.y,mine.z);}
  local=mine;Object.assign(ammoByWeapon,mine.ammoByWeapon);showWeapon(mine.weapon||'revolver');
  setRevolverAmmo(revolverGun,mine.mods?.revolver);duelUI.update(s,id,s.time);
@@ -390,14 +391,14 @@ window.addEventListener('focus',syncActivity);
 document.addEventListener('mousemove',e=>{if(document.pointerLockElement!==$('game')||local.hp<=0||duelState&&duelState.phase!=='active')return;
  mouseAim.freeX=freeX;mouseAim.freeY=freeY;mouseAim.lookYaw=lookYaw;mouseAim.lookPitch=lookPitch;freeAimInput(mouseAim,e.movementX,e.movementY,Number(focusHeld));({freeX,freeY,lookYaw,lookPitch}=mouseAim);
 });
-window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockElement===$('game')){e.preventDefault();if(weapon==='bow'){fire(false);return;}if(weapon==='shotgun'){focusHeld=false;fire(false,gameLoop.now(),true);}else focusHeld=true;}});
+window.addEventListener('mousedown',e=>{if(e.button===2&&document.pointerLockElement===$('game')){e.preventDefault();if(weapon==='bow'){cancelBowDraw();return;}if(weapon==='shotgun'){focusHeld=false;fire(false,gameLoop.now(),true);}else focusHeld=true;}});
 function beginBowDraw(){
  if(!gameLoop.running||local.hp<=0||local.reloadUntil||reloading||bowChargeAt!==null||duelState&&duelState.phase!=='active')return;
  if(!local.ammo){reload();return;}
  bowChargeAt=gameLoop.now();if(online)post('charge',{active:true}).catch(actionError);
 }
 function cancelBowDraw(){if(bowChargeAt===null)return;bowChargeAt=null;if(online)post('charge',{active:false}).catch(actionError);}
-window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;if(e.button===0){autoFire.release();if(weapon==='bow')cancelBowDraw();}});
+window.addEventListener('mouseup',e=>{if(e.button===2)focusHeld=false;if(e.button===0){autoFire.release();if(weapon==='bow'){if(bowChargeAt!==null&&document.pointerLockElement===$('game'))fire(false);cancelBowDraw();}}});
 $('game').addEventListener('contextmenu',e=>e.preventDefault());
 window.addEventListener('keydown',e=>{if(['Space','Tab'].includes(e.code)&&document.pointerLockElement)e.preventDefault();keys.add(e.code);if(e.code==='KeyR'&&document.pointerLockElement)reload();});
 window.addEventListener('keydown',e=>{if(e.code==='KeyF'&&!e.repeat&&document.pointerLockElement){e.preventDefault();launchClay();}});
@@ -423,7 +424,8 @@ function fire(requestFan,now=gameLoop.now(),both=false){
  if(weapon==='bow'){
   if(now-lastShot<WEAPONS.bow.reload)return;
   const {origin,direction}=captureAim(),profile=chargedArrow(bowChargeAt===null?0:(now-bowChargeAt)/BOW_CHARGE_MS),shotId=String(++shotSequence);
-  lastShot=now;lastShotWeapon=weapon;if(!local.powers?.infiniteAmmo)local.ammo--;ammoByWeapon.bow=local.ammo;sound();releaseBow(bowGun);reloading=now+WEAPONS.bow.reload;
+  lastShot=now;lastShotWeapon=weapon;if(!local.powers?.infiniteAmmo)local.ammo--;ammoByWeapon.bow=local.ammo;sound(profile.charge);releaseBow(bowGun);bowMarker.visible=false;
+  if(!local.powers?.noRecoil){wristSpring.velocity+=.7+.6*profile.charge;cameraSpring.velocity+=.06+.04*profile.charge;}reloading=now+WEAPONS.bow.reload;
   shotEffect({id:online?id:'local',shotId,weapon,origin,direction,profile},online);
   if(online)post('fire',shotPayload(origin,direction,{shotId})).catch(actionError);
   bowChargeAt=null;return;
@@ -471,7 +473,7 @@ function sendInput(active=gameLoop.running){
 function syncActivity(allowRun=true){
  if(!renderReady)return;
  const active=hasJoined&&!joining&&allowRun!==false&&!document.hidden&&document.hasFocus()&&document.pointerLockElement===$('game');
- if(!active){autoFire.release();bowChargeAt=null;if(online&&weapon==='bow')post('charge',{active:false}).catch(actionError);}
+ if(!active){bowMarker.visible=false;nextBowPreview=0;autoFire.release();bowChargeAt=null;if(online&&weapon==='bow')post('charge',{active:false}).catch(actionError);}
  document.body.classList.toggle('playing',active);if(!active)shopPrompt.hidden=true;keys.clear();focusHeld=false;queuedFanClick=false;lastClick=-Infinity;
  clearInterval(inputTimer);clearInterval(idleTimer);inputTimer=idleTimer=null;
  if(active){
@@ -512,10 +514,11 @@ function frame(now){
  if(local.hp<=0){deathBody.visible=true;const pan=1-Math.exp(-Math.max(0,now-deathAt)/480);const away=new THREE.Vector3(Math.sin(yaw)*3.8,2,Math.cos(yaw)*3.8),eye={x:local.x,y:local.y+1.5,z:local.z},distance=away.length()*pan;away.normalize();const obstruction=traceShot(eye,away,[],[],wallWorld);camera.position.set(eye.x,eye.y,eye.z).addScaledVector(away,Math.min(distance,Math.max(0,obstruction.distance-.25)));camera.lookAt(deathBody.position.x,deathBody.position.y+.6,deathBody.position.z);}
  audio?.listener?.(camera.position,camera.getWorldDirection(directionScratch));
  if(latestState)duelUI.update(latestState,id,skeetTime());
- const charge=bowChargeAt===null?0:clamp((now-bowChargeAt)/BOW_CHARGE_MS,0,1),bowReload=reloading||local.reloadUntil?clamp(Math.max(reloading?1-(reloading-now)/WEAPONS.bow.reload:-1,online&&local.reloadUntil?1-(local.reloadUntil-skeetTime())/WEAPONS.bow.reload:-1),0,.9999):-1;if(weapon==='bow')animateBow(bowGun,charge,local.ammo>0,{dt,reload:bowReload});bowMeter.hidden=weapon!=='bow'||local.hp<=0;bowMeter.textContent=bowReload>=0?'Nocking…':bowChargeAt===null?'Hold LMB · draw / RMB · shoot':Math.round(charge*100)+'% · RMB to shoot';
+ const charge=bowChargeAt===null?0:clamp((now-bowChargeAt)/BOW_CHARGE_MS,0,1),bowReload=reloading||local.reloadUntil?clamp(Math.max(reloading?1-(reloading-now)/WEAPONS.bow.reload:-1,online&&local.reloadUntil?1-(local.reloadUntil-skeetTime())/WEAPONS.bow.reload:-1),0,.9999):-1;if(weapon==='bow')animateBow(bowGun,charge,local.ammo>0,{dt,reload:bowReload});bowMeter.hidden=weapon!=='bow'||local.hp<=0;bowMeter.textContent=bowReload>=0?'Nocking…':bowChargeAt===null?'Hold LMB · release to shoot':Math.round(charge*100)+'% · release to shoot';
  const reloadEnd=online?local.reloadUntil:reloading;
  placeWeapon(rig,{yaw:handYaw,pitch:handPitch,bob,recoil:0,reload:!!reloadEnd,shotgun:weapon==='shotgun'});
  wrist.rotation.set(wristSpring.angle,0,wristTwist,'YXZ');
+ viewHand.material.opacity=weapon==='bow'?updateBowVisibility(bowGun,camera.position,charge):1;viewHand.material.depthWrite=viewHand.material.opacity>=.999;
  animateRevolver(gun,now,dt);
  animateShotgun(shotgunGun,weapon==='shotgun'?local.ammo:ammoByWeapon.shotgun,dt,weapon==='shotgun'&&reloadEnd?1-(reloadEnd-(online?skeetTime():now))/WEAPONS.shotgun.reload:-1,ejectShells);
  shotgunGun.userData.flash.children.forEach((flame,index)=>flame.visible=shotgunGun.userData.lastBarrel===2||index===shotgunGun.userData.lastBarrel);
@@ -546,12 +549,15 @@ function frame(now){
  }
  if(pelletMesh.count)pelletMesh.instanceMatrix.needsUpdate=true;
  for(let i=remoteFlashes.length-1;i>=0;i--){const f=remoteFlashes[i];f.life-=dt;f.material.opacity=Math.max(0,f.life/.09);if(f.life<=0){f.mesh.removeFromParent();f.mesh.children[0].geometry.dispose();f.material.dispose();remoteFlashes.splice(i,1);}}
- for(let i=stuckArrows.length-1;i>=0;i--){stuckArrows[i].life-=dt;if(stuckArrows[i].life<=0){stuckArrows[i].mesh.removeFromParent();stuckArrows.splice(i,1);}}
+ for(let i=stuckArrows.length-1;i>=0;i--){const a=stuckArrows[i];a.life-=dt;a.age+=dt;wobbleStuckArrow(a.mesh,a.rest,a.age);if(a.life<=0||!a.mesh.parent||a.victim&&!a.victim.parent){a.mesh.removeFromParent();stuckArrows.splice(i,1);}}
  particles.update(dt);shellPhysics.update(dt);canEffects.update(dt);if(dummies.some(g=>g.userData.ragdoll))renderer.shadowMap.needsUpdate=true;
  if(!online)for(const broken of skeetRange.update(now))skeetView.shatter(broken,now);
  if(locked&&mapId==='practice')pickUpShotgun();
  pickupGun.visible=!local.hasShotgun;wallView.update(dt);
  skeetView.update(online?serverClays:skeetRange.flights,skeetTime(),dt,now);
+ const previewBow=weapon==='bow'&&locked&&local.hp>0&&local.ammo>0&&!reloading&&!reloadEnd&&(!duelState||duelState.phase==='active');
+ if(!previewBow)bowMarker.visible=false;
+ else if(now>=nextBowPreview){const ray=captureAim();placeBowMarker(bowMarker,predictArrowImpact(ray,chargedArrow(charge),online?shotCandidates:practiceCandidates,liveClays,wallWorld));nextBowPreview=now+1000/30;}
  const aimOpacity=weapon==='revolver'&&locked&&local.hp>0&&!reloadEnd?focusBlend:0;
  aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;
  const liveAim=aimBeam.visible?captureAim():null;

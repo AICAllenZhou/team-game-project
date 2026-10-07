@@ -48,7 +48,19 @@ function ballisticSegment(p,dt){
 }
 function finishBallistic(p,v){p.speed=Math.hypot(v.x,v.y,v.z);p.direction={x:v.x/p.speed,y:v.y/p.speed,z:v.z/p.speed};}
 export function advanceVisualProjectile(p,dt){
+ if(!p.alive)return;
  const velocity=ballisticSegment(p,dt),travel=Math.min(p.remaining,p.speed*dt);
  for(const a of ['x','y','z'])p.position[a]+=p.direction[a]*travel;p.remaining-=travel;
  if(velocity)finishBallistic(p,velocity);if(p.remaining<=0)p.alive=false;
+}
+
+// Read-only ballistic aiming preview. This uses the same swept segments and
+// collision queries as a live arrow, without modifying targets or voxels.
+export function predictArrowImpact(ray,profile,players=[],clays=[],walls=null){
+ const p=launchProjectile(ray,profile,{weapon:'bow'});
+ for(let i=0;i<180&&p.alive;i++){
+  const hits=advanceProjectile(p,.05,players,clays,walls,{damageWalls:false});
+  if(hits.length)return hits[0];
+ }
+ return null;
 }

@@ -21,10 +21,11 @@ test('held Space cannot fly or auto-jump after landing; release and press jumps 
   const before=p.vy;step(false);step(true);assert.ok(p.vy<before,'Mid-air presses add no lift');
  }
 });
-test('quick arrows reach a nearby target promptly with a tip-sized opening at every charge',()=>{
+test('arrows have visible travel time and a tip-sized opening at every charge',()=>{
  for(const charge of [0,.5,1]){
   const profile=chargedArrow(charge),p=launchProjectile({origin:{x:10,y:1,z:8},direction:{x:0,y:0,z:-1}},profile,{weapon:'bow'});
-  const hits=advanceProjectile(p,.16,[{id:'target',x:10,y:0,z:0,hp:100}],[],null);
+  const targets=[{id:'target',x:10,y:0,z:0,hp:100}],hits=[];
+  for(let t=0;t<.3&&p.alive;t+=.01)hits.push(...advanceProjectile(p,.01,targets,[],null));
   assert.equal(hits.length,1);assert.equal(hits[0].hit,'target');assert.equal(hits[0].holeRadius,.035);assert.ok(hits[0].damage<=60);assert.equal(hits[0].stuck,true);
  }
  assert.equal(chargedArrow(0).headDamage,60);assert.equal(chargedArrow(1).headDamage,100);

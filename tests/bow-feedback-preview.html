@@ -1,0 +1,37 @@
+<!doctype html><meta charset="utf-8"><title>Bow impact preview</title>
+<style>body{margin:0;background:#9b9387;color:#fff;font:16px system-ui}canvas{display:block}nav{position:fixed;left:16px;top:14px}button{font:inherit;padding:8px;margin:3px;background:#342d24;color:#eee;border:1px solid #8c7658;border-radius:5px}output{display:block;margin:8px;text-shadow:0 1px 3px #000}</style>
+<nav><button id="quick">Quick draw</button><button id="half">Half draw</button><button id="full">Full draw</button><button id="shoot">Shoot arrow</button><button id="inspect">Inspect impact</button><output id="status">Local ballistic marker · quick arrow</output></nav>
+<script type="module">
+import * as T from '/vendor/three.module.js';
+import {createBow,animateBow,createArrow,releaseBow,updateBowVisibility,ARROW_TIP_Z} from '/bow-view.js';
+import {createBowMarker,placeBowMarker,seatArrow,wobbleStuckArrow} from '/bow-feedback.js';
+import {createCanCharacter,createCanEffects} from '/can-characters.js';
+import {placeWeapon,captureBarrelRay} from '/weapon-pose.js';
+import {chargedArrow} from '/weapons.mjs';
+import {launchProjectile,advanceProjectile,predictArrowImpact} from '/projectile-physics.mjs';
+import {createWeaponAudio} from '/weapon-audio.js';
+const renderer=new T.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setClearColor(0x9b9387);document.body.append(renderer.domElement);
+const scene=new T.Scene(),camera=new T.PerspectiveCamera(100,innerWidth/innerHeight,.05,100);scene.add(camera);scene.add(new T.HemisphereLight(0xc9d0dc,0x705237,1.9));const sun=new T.DirectionalLight(0xffd09a,2.6);sun.position.set(-20,18,15);scene.add(sun);
+const ground=new T.Mesh(new T.BoxGeometry(30,.5,30),new T.MeshStandardMaterial({color:0xa8895c}));ground.position.y=-.26;scene.add(ground);
+const grid=new T.GridHelper(30,30,0x8f784f,0xad915f);grid.position.y=.003;scene.add(grid);
+const rig=new T.Group(),wrist=new T.Group();camera.add(rig);rig.add(wrist);wrist.position.set(0,-.13,.07);
+const bow=createBow(wrist,{firstPerson:true});bow.position.set(0,.13,-.07);placeWeapon(rig,{});
+const cans=[],targets=[];for(const [i,x] of [8.2,10,11.8].entries()){const can=createCanCharacter(i);can.position.set(x,0,-2);scene.add(can);cans.push(can);targets.push({id:String(i),x,y:0,z:-2,hp:100});}
+const effects=createCanEffects(scene),marker=createBowMarker(scene),flights=[],stuck=[];let charge=0,reload=-1,last=performance.now(),inspection=false,audio;
+const status=document.querySelector('#status');
+function view(value){charge=value;inspection=false;reload=-1;camera.position.set(10,1.5,5);camera.rotation.set(0,0,0);rig.visible=true;status.textContent=value===1?'Full draw · clear view, private impact cross':value===.5?'Half draw · predicted landing point':'Quick arrow · slower flight and more drop';}
+document.querySelector('#quick').onclick=()=>view(0);document.querySelector('#half').onclick=()=>view(.5);document.querySelector('#full').onclick=()=>view(1);
+document.querySelector('#shoot').onclick=()=>{if(reload>=0)return;audio??=createWeaponAudio();audio.resume();const ray=captureBarrelRay(bow),profile=chargedArrow(charge),mesh=createArrow();scene.add(mesh);flights.push({mesh,p:launchProjectile(ray,profile,{weapon:'bow'})});audio.arrow(null,charge);releaseBow(bow);charge=0;reload=0;status.textContent='Arrow released · tip embeds, shaft remains outside';};
+document.querySelector('#inspect').onclick=()=>{inspection=true;rig.visible=false;marker.visible=false;camera.position.set(11.2,1.45,.15);camera.lookAt(10,.9,-2);status.textContent='Impact inspection · exposed shaft in the can';};
+function frame(now){const dt=Math.min(.033,(now-last)/1000);last=now;
+ if(reload>=0){reload+=dt/.65;if(reload>=1)reload=-1;}
+ animateBow(bow,charge,reload<0,{dt,reload});updateBowVisibility(bow,camera.position,charge);
+ if(!inspection&&reload<0)placeBowMarker(marker,predictArrowImpact(captureBarrelRay(bow),chargedArrow(charge),targets));else marker.visible=false;
+ for(let i=flights.length-1;i>=0;i--){const f=flights[i],hits=advanceProjectile(f.p,dt,targets,[],null);
+  if(hits.length){const hit=hits[0],can=hit.hit===null?null:cans[Number(hit.hit)],rest=seatArrow(f.mesh,hit,can);stuck.push({mesh:f.mesh,rest,age:0});if(can)effects.hit(can,hit);audio?.arrowImpact(hit.point,!!can);flights.splice(i,1);}
+  else{const d=new T.Vector3(f.p.direction.x,f.p.direction.y,f.p.direction.z);f.mesh.position.set(f.p.position.x,f.p.position.y,f.p.position.z).addScaledVector(d,ARROW_TIP_Z);f.mesh.quaternion.setFromUnitVectors(new T.Vector3(0,0,-1),d);}
+ }
+ for(const a of stuck){a.age+=dt;wobbleStuckArrow(a.mesh,a.rest,a.age);}effects.update(dt);renderer.render(scene,camera);requestAnimationFrame(frame);
+}
+view(0);requestAnimationFrame(frame);
+</script>

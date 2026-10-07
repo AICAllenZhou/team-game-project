@@ -78,6 +78,7 @@ function puncture(root,point,direction,radius=.075,exit=false,impact=null){
 }
 
 export function resetCan(root){
+ const lodged=[];root.traverse(m=>{if(m.userData.stuckArrow)lodged.push(m);});for(const arrow of lodged)arrow.removeFromParent();
  const d=root.userData;root.rotation.set(0,0,0);d.ragdoll=null;d.fill=1;d.leaks=[];d.sauce.scale.y=1;d.sauce.position.y=-.055;d.holes=[];d.dirtySurfaces.clear();for(const [mesh,base] of [[d.shell,d.baseGeometry],[d.capTop,d.baseTop],[d.capBottom,d.baseBottom]]){mesh.geometry.dispose();mesh.geometry=base.clone();}d.interior.geometry=d.shell.geometry;d.lid.rotation.set(0,0,0);d.rightHand?.rotation.set(0,0,0);d.lid.visible=true;d.hat.visible=true;if(d.rightHand)d.rightHand.visible=true;
  for(const tear of d.tears){tear.traverse(m=>m.geometry?.dispose());d.body.remove(tear);}d.tears=[];root.visible=true;
 }
