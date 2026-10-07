@@ -1,3 +1,4 @@
+import {duelSpawn} from './arena.mjs';
 import {probePeerConnection} from './peer-connection.mjs';
 import {createLanClient,directory} from './lan-client.js';
 
@@ -102,6 +103,12 @@ $('automatic-form').addEventListener('submit',async event=>{
    await host.command('loadout',{secondary:'bow',revolver:'heavy',equip:'revolver'});
    await guest.command('loadout',{secondary:'bow',revolver:'small'});
    await waitUntil(()=>guest.session()?.initialState?.duel?.phase==='active',checkFailure);
+   // Spawn cover deliberately blocks the opening sightline. Walk into the lane.
+   await Promise.all([host.command('input',{active:true,x:0,z:1,yaw:0}),guest.command('input',{active:true,x:0,z:1,yaw:0})]);
+   await waitUntil(()=>guest.session()?.initialState?.players.every(p=>p.z>=2.1),checkFailure);
+   await Promise.all([host.command('input',{active:false}),guest.command('input',{active:false})]);
+   const stoppedAt=guest.session().initialState.time;
+   await waitUntil(()=>guest.session()?.initialState?.time>=stoppedAt+600,checkFailure);
    const shot={muzzleOffset:{x:1,y:-.5,z:0},direction:{x:1,y:0,z:0}};
    await host.command('fire',{...shot,shotId:'check-heavy-1'});
    await waitUntil(()=>guest.session()?.initialState?.players.find(p=>p.id===second.id)?.hp===25,checkFailure);
@@ -112,7 +119,7 @@ $('automatic-form').addEventListener('submit',async event=>{
    await waitUntil(()=>guest.session()?.initialState?.duel?.phase==='intermission',checkFailure);
    const next=guest.session().initialState;
    assert(next.players.every(p=>p.hp===100),'Round respawn did not restore both players.');
-   assert(next.players[0].x===-15.5&&next.players[1].x===15.5,'Round spawns are not at opposite ends.');
+   assert(next.players[0].x===duelSpawn(0).x&&next.players[1].x===duelSpawn(1).x,'Round spawns are not at opposite ends.');
    assert(guest.session().wallState.every(removed=>removed.length===0),'Arena damage was not reset.');
    checkpoint('Map reset, opposite spawns and three-second loadout intermission verified.');
   };

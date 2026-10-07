@@ -154,7 +154,7 @@ setInterval(()=>{const now=Date.now();for(let i=bullets.length-1;i>=0;i--)if(!ro
  if(now-p.lastSeen>15000){remove(p);continue;}
  if(p.deadUntil&&now>=p.deadUntil){Object.assign(p,spawn(),{hp:100,ammo:ammoProfile(p.weapon,p.mods).capacity,ammoByWeapon:{revolver:ammoProfile('revolver',p.mods).capacity,shotgun:2,bow:1},chargeAt:null,deadUntil:0,reloadUntil:0});}
  if(p.reloadUntil&&now>=p.reloadUntil){p.ammo=ammoProfile(p.weapon,p.mods).capacity;p.ammoByWeapon[p.weapon]=p.ammo;p.reloadUntil=0;}
- if(p.hp>0){const old={x:p.x,z:p.z};move(p,p.input,.05);wallWorlds.get(key).collide(p,old);}
+ if(p.hp>0){const old={x:p.x,y:p.y,z:p.z};move(p,p.input,.05);wallWorlds.get(key).collide(p,old);}
  }
  for(let i=bleeds.length-1;i>=0;i--){const b=bleeds[i];if(b.room!==key)continue;const victim=room.get(b.target)||cans.find(c=>c.id===b.target);if(!victim||victim.hp<=0){bleeds.splice(i,1);continue;}if(now>=b.next){const killed=applyDamage(victim,5,now);if(killed&&room.get(b.shooter))room.get(b.shooter).kills++;b.left--;b.next+=400;broadcast(room,'bleed',{id:victim.id,damage:5,killed});if(killed||!b.left)bleeds.splice(i,1);}}
  for(let i=bullets.length-1;i>=0;i--){const bullet=bullets[i];if(bullet.room!==key)continue;const dt=Math.min(.1,(now-bullet.updatedAt)/1000);bullet.updatedAt=now;

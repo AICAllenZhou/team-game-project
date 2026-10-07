@@ -18,7 +18,7 @@ test('holes synchronize idempotently and new worlds remain intact',()=>{
 test('voxel traversal handles reverse rays, parallel misses and internal origins',()=>{
  const w=createVoxelWalls();assert.ok(w.trace({x:17,y:1,z:-5},{x:-1,y:0,z:0}));assert.equal(w.trace({x:12,y:5,z:-5},direction),null);
  assert.equal(w.trace({x:15.1,y:1,z:-5},direction).distance,0);
- const p={x:15.1,y:0,z:-5,vx:1,vz:0};w.collide(p,{x:14,z:-5});assert.equal(p.x,14);
+ const p={x:15.1,y:0,z:-5,vx:1,vz:0};w.collide(p,{x:14,z:-5});assert.ok(p.x>14.7&&p.x<14.73);
 });
 
 test('wall rendering omits hidden faces and rebuild versions change only for damaged walls',async()=>{

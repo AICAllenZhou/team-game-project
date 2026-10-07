@@ -134,3 +134,5 @@ Pick revolver ammo plus exactly one secondary (shotgun or bow). **1** equips the
 Other players' shots show a world-space muzzle flash and use distance-attenuated, directional HRTF audio. Muzzle messages use a validated offset from the rendered eye, re-anchored to the authoritative player position, rather than rejecting normal prediction latency as an invalid world-space pose. Rejected actions no longer tear down the session.
 
 Local P2P integration preview: `node build-static.mjs`, then `node tests/preview-server.mjs` (localhost only, ephemeral in-memory directory). The browser connection check also tests a map change and 1v1 scoring/reset using two temporary peers; it never changes a real player's room.
+
+The revised Dustyard uses exact mirrored geometry, chamfered end courts and can-height crates. Both spawns are concealed by full-height destructible cover. The shared movement controller steps over remnants up to 0.38 units, slides along walls, bridges holes smaller than the player footprint, and checks overhead clearance. Grounded camera height eases over steps without changing horizontal mouse response.
