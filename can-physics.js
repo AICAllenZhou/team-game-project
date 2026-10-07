@@ -8,7 +8,7 @@ export function createCanBody(position,quaternion,direction,hitPoint,fill=1){
  const angular=inverseInertia(application.sub(center).cross(impulse),quaternion);angular.clampLength(0,8);
  return {position:center,velocity:impulse,angular,quaternion:quaternion.clone(),com,age:0};
 }
-export function stepCanBody(p,dt){
+export function stepCanBody(p,dt,ground=0){
  const steps=Math.max(1,Math.ceil(dt*180)),h=dt/steps;
  for(let i=0;i<steps;i++){
   p.velocity.y-=9.81*h;p.position.addScaledVector(p.velocity,h);
@@ -18,8 +18,8 @@ export function stepCanBody(p,dt){
   radial.copy(normal).addScaledVector(axis,-axis.y);const horizontal=radial.length();if(horizontal>1e-6)radial.multiplyScalar(-radius/horizontal);else radial.set(0,0,0);
   lever.copy(axis).multiplyScalar((axis.y>=0?-halfHeight:halfHeight)+.9-p.com).add(radial);
   contact.copy(p.position).add(lever);
-  if(contact.y<0){
-   p.position.y-=contact.y;
+  if(contact.y<ground){
+   p.position.y+=ground-contact.y;
    velocity.copy(p.angular).cross(lever).add(p.velocity);
    if(velocity.y<0){
     cross.copy(lever).cross(normal);torque.copy(cross);inverseInertia(torque,p.quaternion);

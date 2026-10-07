@@ -82,7 +82,7 @@ export function resetCan(root){
  for(const tear of d.tears){tear.traverse(m=>m.geometry?.dispose());d.body.remove(tear);}d.tears=[];root.visible=true;
 }
 
-export function createCanEffects(scene){
+export function createCanEffects(scene,{floorAt=()=>0}={}){
  const splats=createFoodSplats(scene),lids=[];
  const capacity=400,items=[],meshes=[0,1,2,3,4].map(type=>{const mesh=new THREE.InstancedMesh(createFoodGeometry(type===4?1:type),new THREE.MeshStandardMaterial({roughness:type===3?.5:.32,flatShading:false}),capacity);mesh.name='can-food-pieces-'+type;mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);mesh.count=0;mesh.frustumCulled=false;scene.add(mesh);return mesh;});
  const leaking=new Set(),damaged=new Set();
@@ -124,7 +124,7 @@ export function createCanEffects(scene){
     mesh.geometry=cutCanSurface(base,d.holes.filter(h=>h.surface===surface));if(!surface)d.interior.geometry=mesh.geometry;old.dispose();
    }d.dirtySurfaces.clear();
   }damaged.clear();
-  for(const root of bodies){const p=root.userData.ragdoll;if(!p){bodies.delete(root);continue;}const com=.9-.1*root.userData.fill;p.position.addScaledVector(up.set(0,1,0).applyQuaternion(p.quaternion),com-p.com);p.com=com;stepCanBody(p,dt);placeCanBody(root,p);}
+  for(const root of bodies){const p=root.userData.ragdoll;if(!p){bodies.delete(root);continue;}const com=.9-.1*root.userData.fill;p.position.addScaledVector(up.set(0,1,0).applyQuaternion(p.quaternion),com-p.com);p.com=com;stepCanBody(p,dt,floorAt(p.position.x,p.position.z,p.position.y+.4));placeCanBody(root,p);}
   for(const root of leaking){const d=root.userData;if(!d.leaks.length||d.fill<=.01){leaking.delete(root);continue;}
    root.updateWorldMatrix(true,true);
    for(const leak of d.leaks){

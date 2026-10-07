@@ -222,7 +222,7 @@ test('the original three cans stay in a two-player lobby with shared damage, bea
 
 test('admin loadout grants weapons and ammo without spending beans or refilling on every heartbeat',()=>{
  const {engine,player}=fixture();engine.addPlayer({id:'admin',name:'Admin'});
- assert.throws(()=>engine.command('admin','loadout',{allWeapons:true}),{status:404});
+ assert.throws(()=>engine.command('admin','loadout',{allWeapons:true}),{status:409});
  engine.command('admin','input',{active:false,loadout:{hasShotgun:true},powers:{noCooldown:true}});assert.equal(player('admin').hasShotgun,false);
  const loadout={revision:'one',hasShotgun:true,mods:{revolver:'small',shotgun:'slug'}};
  engine.setPlayerLoadout('admin',loadout);assert.equal(player('admin').hasShotgun,true);assert.equal(player('admin').mods.shotgun,'slug');assert.equal(player('admin').beans,0);

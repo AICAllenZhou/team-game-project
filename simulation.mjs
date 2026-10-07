@@ -1,3 +1,4 @@
+import {DUEL_SOLIDS,DUEL_BOUNDS} from './arena.mjs';
 import {SHOP_SOLIDS,collideShop} from './shop.mjs';
 import {LAUNCHER,clayHit} from './skeet.mjs';
 export const LIMIT=27, SPEED=4.5;
@@ -19,10 +20,17 @@ export function resolveBarrelShot(player,data){
  direction={x:data.direction.x/length,y:data.direction.y/length,z:data.direction.z/length};
  }
  let origin={x:player.x+direction.x*.76+Math.cos(yaw)*.19,y:player.y+1.27+direction.y*.76,z:player.z+direction.z*.76-Math.sin(yaw)*.19};
- if(data.muzzle){
- if(![data.muzzle.x,data.muzzle.y,data.muzzle.z].every(Number.isFinite)||Math.hypot(data.muzzle.x-player.x,data.muzzle.y-player.y-1.5,data.muzzle.z-player.z)>(player.weapon==='shotgun'?2.3:2))return null;
- origin={x:data.muzzle.x,y:data.muzzle.y,z:data.muzzle.z};
- }else if(data.muzzleOffset&&[data.muzzleOffset.x,data.muzzleOffset.y,data.muzzleOffset.z].every(Number.isFinite)&&Math.hypot(data.muzzleOffset.x,data.muzzleOffset.y,data.muzzleOffset.z)<=1.4){origin={x:player.x+data.muzzleOffset.x,y:player.y+1.5+data.muzzleOffset.y,z:player.z+data.muzzleOffset.z};}
+ // Relative reach is independent of prediction/packet latency. A malformed
+ // offset is rejected instead of allowing arbitrary distant muzzle origins.
+ if(data.muzzleOffset!==undefined){
+  const offset=data.muzzleOffset;
+  if(!offset||![offset.x,offset.y,offset.z].every(Number.isFinite)||Math.hypot(offset.x,offset.y,offset.z)>2.3)return null;
+  origin={x:player.x+offset.x,y:player.y+1.5+offset.y,z:player.z+offset.z};
+ }else if(data.muzzle){
+  if(![data.muzzle.x,data.muzzle.y,data.muzzle.z].every(Number.isFinite)||Math.hypot(data.muzzle.x-player.x,data.muzzle.y-player.y-1.5,data.muzzle.z-player.z)>(player.weapon==='shotgun'?2.3:2))return null;
+  origin={...data.muzzle};
+ }
+ if(![direction.x,direction.y,direction.z].every(Number.isFinite))return null;
  return {origin,direction};
 }
 export function projectileProgress(distance,seconds){return Math.min(1,Math.max(0,seconds)/Math.max(.14,distance/PROJECTILE_SPEED));}
@@ -67,15 +75,16 @@ function boxHit(origin,direction,box){
 // actual surface, including the base plate, fences and target stands.
 export function traceShot(origin,direction,players=[],clays=[],walls=null){
  let distance=70,hit=null,targetId=null,clayId=null,surface=null,normal=null,headshot=false;
- for(const box of arenaBoxes){const result=boxHit(origin,direction,box);if(result&&result.distance<distance){distance=result.distance;normal=result.normal;surface='world';}}
- for(const target of TRAINING_TARGETS){const d=targetHit(origin,direction,target);if(d<distance){distance=d;targetId=target.id;surface='target';normal={x:(origin.x+direction.x*d-target.x)/target.radius,y:(origin.y+direction.y*d-target.y)/target.radius,z:(origin.z+direction.z*d-target.z)/target.radius};}}
+ for(const box of (walls?.mapId==='duel'?DUEL_SOLIDS:arenaBoxes)){const result=boxHit(origin,direction,box);if(result&&result.distance<distance){distance=result.distance;normal=result.normal;surface='world';}}
+ for(const target of (walls?.mapId==='duel'?[]:TRAINING_TARGETS)){const d=targetHit(origin,direction,target);if(d<distance){distance=d;targetId=target.id;surface='target';normal={x:(origin.x+direction.x*d-target.x)/target.radius,y:(origin.y+direction.y*d-target.y)/target.radius,z:(origin.z+direction.z*d-target.z)/target.radius};}}
  for(const player of players){if(player.hp<=0)continue;const d=rayHit(origin,direction,player);if(d<distance){distance=d;hit=player.id;targetId=null;headshot=origin.y+direction.y*d-player.y>=1.38;surface='player';normal={x:-direction.x,y:-direction.y,z:-direction.z};}}
  for(const clay of clays){const d=clayHit(origin,direction,clay);if(d<distance){distance=d;hit=targetId=null;clayId=clay.id;surface='clay';normal={x:-direction.x,y:-direction.y,z:-direction.z};}}
  const voxel=walls?.trace(origin,direction,distance);
  if(voxel){distance=voxel.distance;hit=targetId=clayId=null;surface='voxel';normal=voxel.normal;}
  return {...(voxel?{wallId:voxel.wallId,cell:voxel.cell}:{}),distance,hit,targetId,clayId,surface,normal,headshot:surface==='player'&&headshot,point:{x:origin.x+direction.x*distance,y:origin.y+direction.y*distance,z:origin.z+direction.z*distance}};
 }
-export function move(p,input,dt){
+export function move(p,input,dt,{mapId='practice'}={}){
+ const duel=mapId==='duel',floor=duel?-4:0,limitX=duel?DUEL_BOUNDS.x-.3:LIMIT,limitZ=duel?DUEL_BOUNDS.z-.3:LIMIT;
  const shopOld={x:p.x,z:p.z};
  const x=Math.max(-1,Math.min(1,Number(input.x)||0)),z=Math.max(-1,Math.min(1,Number(input.z)||0));
  const len=Math.max(1,Math.hypot(x,z));
@@ -86,10 +95,10 @@ export function move(p,input,dt){
  const decay=Math.exp(-12*dt),travel=(1-decay)/12,vx=p.vx||0,vz=p.vz||0;
  const nextX=p.x+targetX*dt+(vx-targetX)*travel,nextZ=p.z+targetZ*dt+(vz-targetZ)*travel;
  p.vx=targetX+(vx-targetX)*decay;p.vz=targetZ+(vz-targetZ)*decay;
- p.x=Math.max(-LIMIT,Math.min(LIMIT,nextX));p.z=Math.max(-LIMIT,Math.min(LIMIT,nextZ));
+ p.x=Math.max(-limitX,Math.min(limitX,nextX));p.z=Math.max(-limitZ,Math.min(limitZ,nextZ));
  if(p.x!==nextX)p.vx=0;if(p.z!==nextZ)p.vz=0;
- if(input.jump&&p.y===0)p.vy=5;
- p.vy=Number.isFinite(p.vy)?p.vy:0;p.y=Math.max(0,p.y+p.vy*dt-7.5*dt*dt);p.vy-=15*dt;if(p.y===0)p.vy=0;collideShop(p,shopOld);
+ if(input.jump&&(p.grounded||p.y===floor))p.vy=5;
+ p.vy=Number.isFinite(p.vy)?p.vy:0;p.y=Math.max(floor,p.y+p.vy*dt-7.5*dt*dt);p.vy-=15*dt;if(p.y===floor)p.vy=0;if(!duel)collideShop(p,shopOld);
 }
 export function rayHit(origin,direction,target){
  // Closed can cylinder, matching the visible flat lid and base.

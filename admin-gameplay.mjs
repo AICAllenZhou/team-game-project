@@ -1,8 +1,8 @@
 import {AMMO_MODS,ammoProfile} from './weapons.mjs';
 
 export function adminLoadout(previous,data,revision){
- const result={revision,hasShotgun:previous?.hasShotgun===true,mods:{...previous?.mods}};
- if(data.allWeapons===true)result.hasShotgun=true;
+ const result={revision,hasShotgun:previous?.hasShotgun===true,hasBow:previous?.hasBow===true,mods:{...previous?.mods}};
+ if(data.allWeapons===true)result.hasShotgun=result.hasBow=true;
  if(data.weapon!==undefined||data.mod!==undefined){
   if(!Object.hasOwn(AMMO_MODS,data.weapon)||!Object.hasOwn(AMMO_MODS[data.weapon],data.mod))throw Error('Invalid ammo');
   result.mods[data.weapon]=data.mod;
@@ -14,7 +14,7 @@ export function adminLoadout(previous,data,revision){
 export function applyAdminLoadout(player,loadout){
  if(!loadout?.revision||player.adminLoadoutRevision===loadout.revision)return player;
  player.adminLoadoutRevision=loadout.revision;
- if(loadout.hasShotgun)player.hasShotgun=true;
+ if(loadout.hasShotgun)player.hasShotgun=true;if(loadout.hasBow){player.hasBow=true;player.ammoByWeapon.bow??=1;}
  for(const [weapon,mod] of Object.entries(loadout.mods||{})){
   if(!Object.hasOwn(AMMO_MODS,weapon)||!Object.hasOwn(AMMO_MODS[weapon],mod))continue;
   player.mods={...player.mods,[weapon]:mod};

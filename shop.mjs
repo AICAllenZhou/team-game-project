@@ -3,6 +3,7 @@ export const SHOP={x:-13,z:3.5,keeperZ:1.9};
 export const AMMO_STOCK=[
  {weapon:'revolver',mod:'standard',name:'Revolver rounds',detail:'Six heavy rounds',price:400},
  {weapon:'revolver',mod:'small',name:'Small rounds',detail:'Eight rounds · softer recoil',price:400},
+ {weapon:'revolver',mod:'heavy',name:'Tri-shot rounds',detail:'Three slow, heavy rounds',price:500},
  {weapon:'shotgun',mod:'standard',name:'Buckshot',detail:'Twelve pellets per barrel',price:450},
  {weapon:'shotgun',mod:'birdshot',name:'Birdshot',detail:'Eighty little pellets',price:450},
  {weapon:'shotgun',mod:'slug',name:'Slugs',detail:'One big punch',price:500}

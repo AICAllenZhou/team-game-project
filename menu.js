@@ -1,9 +1,8 @@
-import {API_BASE} from './runtime-config.js';
 import {directory} from './lan-client.js';
 import {clearUsernameCookie} from './saved-player.js';
 const $=id=>document.getElementById(id);
 const powerFields=[['no-recoil','noRecoil'],['infinite-ammo','infiniteAmmo'],['infinite-hp','infiniteHp'],['no-cooldown','noCooldown'],['full-auto','fullAuto']];
-export function createMenu({join,getSession,changePowers,changeLoadout=()=>{},leave=()=>{},onAdminLock=()=>{},previewScare=()=>{}}){
+export function createMenu({join,getSession,changePowers,changeLoadout=()=>{},leave=()=>{},onAdminLock=()=>{},previewScare=()=>{},changeMap=()=>{}}){
  let adminToken=null,practiceAdmin=false,adminUntil=0,mode='checking',refreshTimer=null,busy=false,rememberName=true;
  try{const cookie=document.cookie.split('; ').find(c=>c.startsWith('dustline_username='));if(cookie)$('username').value=decodeURIComponent(cookie.slice(cookie.indexOf('=')+1));}catch{}
  function username(){
@@ -18,13 +17,10 @@ export function createMenu({join,getSession,changePowers,changeLoadout=()=>{},le
  function setMode(next){mode=next;$('connection-status').textContent='';sessionChanged();}
  function isAdmin(){return !!(adminToken||practiceAdmin)&&Date.now()<adminUntil;}
  async function admin(path,data={}){
-  if(mode==='lan')return directory({login:'adminLogin',logout:'adminLogout',players:'players',powers:'adminPowers',loadout:'adminLoadout',resetCookie:'adminResetCookie'}[path],{adminToken,...data});
-  const response=await fetch(API_BASE+'/api/admin/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({adminToken,...data})});
-  if(!response.ok){const error=Error(await response.text()||'Admin request failed');error.status=response.status;throw error;}
-  return response.status===204?null:response.json();
+  return directory({login:'adminLogin',logout:'adminLogout',players:'players',powers:'adminPowers',loadout:'adminLoadout',resetCookie:'adminResetCookie',map:'adminMap'}[path],{adminToken,...data});
  }
  function powerState(){
-  const s=getSession();$('power-controls').disabled=busy;$('all-weapons').disabled=busy;
+  const s=getSession();$('play').disabled=busy||mode==='checking';$('power-controls').disabled=busy;$('all-weapons').disabled=busy;
   for(const [id,key] of powerFields)$(id).checked=!!s.powers?.[key];
  }
  async function enter(options,button,messageId='menu-message'){
@@ -42,18 +38,18 @@ export function createMenu({join,getSession,changePowers,changeLoadout=()=>{},le
  }
  async function refresh(){
   if($('admin-panel').hidden||!isAdmin()||busy)return;powerState();
-  if(!['online','lan'].includes(mode)){$('player-list').textContent='No players';return;}
+  if(mode!=='p2p'){$('player-list').textContent='No players';return;}
   try{
    const {rooms}=await admin('players');$('player-list').replaceChildren();
-   const players=rooms.flatMap(room=>room.players);
+   const players=rooms.flatMap(room=>room.players.map(player=>({...player,roomId:room.name,roomSize:room.players.length})));
    if(!players.length){$('player-list').textContent='No players';return;}
    for(const p of players){
     const row=document.createElement('div');row.className='player-row';const label=document.createElement('span');
     label.textContent=p.name+(p.id===getSession().id?' (you)':'');row.append(label);
     if(p.id!==getSession().id){
      const actions=document.createElement('div');actions.className='player-actions';
-     const joinButton=document.createElement('button');joinButton.className='secondary';joinButton.textContent='Join';joinButton.setAttribute('aria-label','Join '+p.name);
-     joinButton.onclick=async()=>{if(await enter({targetId:p.id},joinButton,'admin-message'))close();};
+     const joinButton=document.createElement('button');joinButton.className='secondary';const sameRoom=!!p.roomId&&getSession().online&&p.roomId===getSession().room;joinButton.textContent=sameRoom?'Connected':p.roomSize>=2?'Full':'Join P2P';joinButton.disabled=sameRoom||p.roomSize>=2;joinButton.setAttribute('aria-label','Join '+p.name);
+     joinButton.onclick=async()=>{if(joinButton.disabled)return;joinButton.textContent='Connecting…';if(await enter({targetId:p.id},joinButton,'admin-message'))close();else joinButton.textContent='Join P2P';};
      const reset=document.createElement('button');reset.className='secondary';reset.textContent=p.cookieResetPending?'Resetting…':'Reset cookie';reset.disabled=!!p.cookieResetPending;reset.setAttribute('aria-label','Reset cookie for '+p.name);
      reset.onclick=async()=>{
       if(!globalThis.confirm('Clear the saved username for '+p.name+'?'))return;
@@ -72,7 +68,7 @@ export function createMenu({join,getSession,changePowers,changeLoadout=()=>{},le
  $('admin-open').onclick=()=>{$('menu').hidden=true;$('admin-panel').hidden=false;if(isAdmin())unlocked();else{lock();$('admin-code').focus();}};
  $('admin-close').onclick=close;$('admin-refresh').onclick=refresh;
  $('admin-lock').onclick=async()=>{
-  try{const s=getSession();if(s.started){const player=s.online?await admin('powers',{token:s.token,powers:{}}):null;await changePowers({},mode==='lan'?null:player);}if(adminToken)await admin('logout');}
+  try{const s=getSession();if(s.started){const player=s.online?await admin('powers',{token:s.token,powers:{}}):null;await changePowers({},mode==='p2p'?null:player);}if(adminToken)await admin('logout');}
   catch(e){$('admin-message').textContent=e.message;}finally{lock();}
  };
  $('admin-login').onsubmit=async e=>{
@@ -87,7 +83,7 @@ export function createMenu({join,getSession,changePowers,changeLoadout=()=>{},le
  };
  $('power-controls').onchange=async()=>{
   const powers=Object.fromEntries(powerFields.map(([id,key])=>[key,$(id).checked]));busy=true;powerState();
-  try{if(!isAdmin())throw Error('Unlock Admin first.');await ensureSession();const s=getSession();const player=s.online?await admin('powers',{token:s.token,powers}):null;await changePowers(powers,mode==='lan'?null:player);}
+  try{if(!isAdmin())throw Error('Unlock Admin first.');await ensureSession();const s=getSession();const player=s.online?await admin('powers',{token:s.token,powers}):null;await changePowers(powers,mode==='p2p'?null:player);}
   catch(e){$('admin-message').textContent=e.message;}finally{busy=false;powerState();}
  };
  async function ensureSession(){
@@ -100,22 +96,26 @@ export function createMenu({join,getSession,changePowers,changeLoadout=()=>{},le
   if(!isAdmin())throw Error('Unlock Admin first.');
   await ensureSession();const s=getSession();
   const result=s.online?await admin('loadout',{token:s.token,...data}):null;
-  return changeLoadout(data,mode==='lan'?null:result);
+  return changeLoadout(data,mode==='p2p'?null:result);
  }
+ if($('set-map'))$('set-map').onclick=async()=>{
+  if(!isAdmin()||busy)return;busy=true;powerState();
+  try{await ensureSession();const s=getSession();if(mode!=='p2p')throw Error('Map selection requires P2P play.');await admin('map',{token:s.token,mapId:$('map-choice').value});await changeMap();$('admin-message').textContent='Map changed.';}
+  catch(e){$('admin-message').textContent=e.message;}finally{busy=false;powerState();}
+ };
  $('all-weapons').onclick=async()=>{busy=true;powerState();try{await loadout({allWeapons:true});}catch(e){$('admin-message').textContent=e.message;}finally{busy=false;powerState();}};
  $('join-form').onsubmit=async e=>{e.preventDefault();await enter({},$('play'));};
  $('leave-lobby').onclick=()=>{leave();sessionChanged();message('');};
  function sessionChanged(){const s=getSession();document.body.classList.toggle('has-session',s.started);$('username').disabled=s.started;$('leave-lobby').hidden=!s.online;$('play').disabled=busy||mode==='checking';$('play').textContent=s.started?'Resume':'Play';powerState();}
  async function checkConnection(){
-  const r=await fetch(API_BASE+'/api/health',{signal:AbortSignal.timeout(10000)});
-  if(r.ok&&(r.headers.get('content-type')||'').includes('application/json')&&(await r.json()).multiplayer){setMode('online');return;}
-  if(![404,405].includes(r.status)||API_BASE)throw Error('Connection unavailable.');
-  const lan=await fetch(API_BASE+'/api/multiplayer',{signal:AbortSignal.timeout(10000)});
-  if(lan.ok&&(lan.headers.get('content-type')||'').includes('application/json')&&(await lan.json()).transport==='webrtc'){setMode('lan');return;}
-  if([404,405].includes(lan.status)){setMode('practice');return;}
-  if(lan.status===503&&(await lan.json().catch(()=>({}))).code==='NOT_CONFIGURED'){setMode('practice');return;}
-  throw Error('Connection unavailable.');
+  const response=await fetch('/api/multiplayer',{signal:AbortSignal.timeout(10000)});
+  const json=(response.headers.get('content-type')||'').includes('application/json');
+  const health=json?await response.json():null;
+  if(response.ok&&health?.transport==='webrtc'){setMode('p2p');return;}
+  if([404,405].includes(response.status)||health?.code==='NOT_CONFIGURED'){setMode('practice');return;}
+  throw Error('P2P discovery unavailable.');
  }
+
  sessionChanged();checkConnection().catch(()=>setMode('error'));
  return {message,setMode,mode:()=>mode,sessionChanged,close,isAdmin,loadout,
   resetCookie(){clearUsernameCookie(document,location.protocol);rememberName=false;}};

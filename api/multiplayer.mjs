@@ -9,8 +9,8 @@ const MAX_MESSAGE_BYTES = 64 * 1024;
 const MAX_BODY_BYTES = MAX_MESSAGE_BYTES + 4096;
 const defaultPowers = () => ({noRecoil:false, infiniteAmmo:false, infiniteHp:false,noCooldown:false,fullAuto:false});
 const fail = (status, error, code) => Object.assign(new Error(error), {status, code});
-const publicPlayer = p => ({id:p.id, name:p.name, hostId:p.hostId, active:p.active, hp:p.hp, powers:p.powers,loadout:p.loadout,cookieResetPending:!!p.cookieReset&&p.cookieReset!==p.cookieResetAck});
-const sessionResult = p => ({id:p.id, joinCode:p.joinCode, lobbyCode:p.lobbyCode||'', isLobby:p.isLobby===true, hostId:p.hostId, powers:p.powers,loadout:p.loadout});
+const publicPlayer = p => ({id:p.id, name:p.name, hostId:p.hostId, active:p.active, hp:p.hp, powers:p.powers,mapConfig:p.mapConfig,loadout:p.loadout,cookieResetPending:!!p.cookieReset&&p.cookieReset!==p.cookieResetAck});
+const sessionResult = p => ({id:p.id, joinCode:p.joinCode, lobbyCode:p.lobbyCode||'', isLobby:p.isLobby===true, hostId:p.hostId, powers:p.powers,mapConfig:p.mapConfig,loadout:p.loadout});
 
 // The shared directory contains only connection metadata. Game frames travel over WebRTC.
 export class RedisStore {
@@ -51,6 +51,7 @@ if kind=='heartbeat' then
   if p.hostId~=p.id and redis.call('EXISTS',prefix..'player:'..p.hostId)==0 then return {'HOST_OFFLINE'} end
   p.active=data.active; p.hp=data.hp
 elseif kind=='powers' then p.powers=data
+elseif kind=='map' then p.mapConfig=data
 elseif kind=='loadout' then p.loadout=data
 elseif kind=='cookieReset' then p.cookieReset=data.id
 elseif kind=='cookieResetAck' then if p.cookieReset==data.id then p.cookieResetAck=data.id end
@@ -184,6 +185,11 @@ export function createHandler(store, {clock=Date.now, uuid=randomUUID, integer=r
         const hp=Number.isFinite(data.hp)?Math.max(0,Math.min(100,data.hp)):player.hp;
         const next=await change(player,'heartbeat',{active:typeof data.active==='boolean'?data.active:player.active,hp});
         return reply(200,sessionResult(next));
+      }
+      if(data.action==='adminMap'){
+        await admin();if(!['practice','duel'].includes(data.mapId))throw fail(400,'Invalid map.');
+        const host=await store.get('player:'+player.hostId);if(!host)throw changeError('HOST_OFFLINE');
+        const next=await change(host,'map',{id:data.mapId,revision:uuid(),changedAt:now});return reply(200,{mapConfig:next.mapConfig});
       }
       if(data.action==='adminPowers') {
         await admin();const powers={};for(const key of Object.keys(defaultPowers()))powers[key]=data.powers?.[key]===true;

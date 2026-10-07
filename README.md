@@ -76,29 +76,23 @@ Players have 100 HP. The upper capsule above 1.38 units counts as the head; hat 
 | Birdshot | 2 per pellet | 2 per pellet | 50 of 80 pellets per barrel |
 | Slug | 100 | 100 | 1 |
 
-## Vercel LAN play (no player installation)
+## Admin-only P2P play (no player installation)
 
 1. Connect an Upstash Redis database to the Vercel project. Use the Free plan if available; do not enable paid upgrades automatically. The database keeps expiring player sessions, codes, admin sessions and connection messages. No gameplay positions or shots are sent through Redis.
 2. The integration must provide `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`, or the compatible `KV_REST_API_URL` and `KV_REST_API_TOKEN`, to the Vercel Function. These credentials stay server-side. Redeploy after connecting it.
-3. Leave `MULTIPLAYER_URL` unset for Vercel LAN mode. `GET /api/multiplayer` returns `{multiplayer:true,transport:"webrtc"}`. An unconfigured database returns 503 with `NOT_CONFIGURED` and the game falls back to local practice.
+3. The browser uses the same-origin P2P directory exclusively. `GET /api/multiplayer` returns `{multiplayer:true,transport:"webrtc"}`. An unconfigured database returns 503 with `NOT_CONFIGURED` and the game falls back to local practice.
 4. Enter a username and press **Play**. This creates a discoverable game with the original three bean cans, GUNZ shop and physics.
-5. The admin unlocks **Admin**, finds the other player and presses **Join**. Both the directory and game authority enforce a two-player limit; joining another game requires admin access.
+5. The admin unlocks **Admin**, finds the other player and presses **Join P2P**. Both the directory and game authority enforce a two-player limit; joining another game requires admin access.
 6. Damage, respawns, bean rewards, walls and movement are shared. Keep the hosting player's browser open. **Leave** returns to local practice. A failed join displays an error.
 
 
-The browsers still need internet access to the Vercel directory for discovery and periodic presence checks. Gameplay uses LAN candidates only (`iceServers: []`): no public STUN server or TURN relay is configured. The service does not scan the local network. Wi-Fi client isolation, blocked WebRTC or a VPN can prevent direct connections even on the same Wi-Fi; a failed join reports this instead of silently putting players in separate games. The admin directory lists site players, but direct joining still requires a reachable LAN peer.
+The browsers still need internet access to the Vercel directory for discovery and periodic presence checks. Gameplay travels directly between browser peers over WebRTC. STUN discovers direct routes; there is no TURN or gameplay relay. The service does not scan the local network. Wi-Fi client isolation, blocked WebRTC or a VPN can prevent direct connections even on the same Wi-Fi; a failed join reports this instead of silently putting players in separate games. The admin directory lists site players, but direct joining still requires a reachable peer. Restrictive NATs may prevent a connection. The public connection-check page can test a local WebRTC round trip, but cannot prove connectivity to another computer.
 
-Lobby sessions expire after 90 seconds without a heartbeat. Only the username and solo-practice bean progress are remembered between page loads; LAN progress lasts for the current session. Directory tokens and Redis credentials are not exposed in player lists. The host browser is authoritative, so this friend-game prototype does not defend against a modified host client. Free service usage limits still apply to directory requests; reaching them can interrupt discovery and presence.
+Lobby sessions expire after 90 seconds without a heartbeat. Only the username and solo-practice bean progress are remembered between page loads; P2P progress lasts for the current session. Directory tokens and Redis credentials are not exposed in player lists. The host browser is authoritative, so this friend-game prototype does not defend against a modified host client. Free service usage limits still apply to directory requests; reaching them can interrupt discovery and presence.
 
-### Optional persistent Node server
+### Development and legacy server
 
-The existing `node server.mjs` mode still supports a continuously hosted authoritative server, including internet multiplayer. It is separate from the no-install Vercel LAN mode:
-
-1. Deploy one Node.js 22+ instance with start command `node server.mjs` and the host-provided `PORT`.
-2. On that server, set `ALLOWED_ORIGINS=https://team-game-project.vercel.app` (comma-separated if needed), and optionally `ADMIN_CODE` (defaults to `0310`).
-3. Set Vercel's `MULTIPLAYER_URL` to that server's HTTPS origin and redeploy.
-
-No npm dependencies are required in either mode. Node hosting must support long-lived SSE connections. `node --test tests/*.test.mjs` validates admin-only joining, cookie resets, loadouts, firing rules, admin authorization, room simulation and networking lifecycle.
+The Node server remains available for development and legacy transport tests, but the browser menu no longer selects its HTTP/SSE multiplayer path or an external `MULTIPLAYER_URL`. The published game uses P2P only. No player installation or npm dependencies are required. `node --test tests/*.test.mjs` validates admin-only joining, cookie resets, loadouts, firing rules, authorization, simulation and networking lifecycle.
 
 ## Projectile combat and can characters
 
@@ -113,7 +107,7 @@ Can damage openings now scale with each projectile's ammo damage: tiny birdshot,
 
 The weathered wooden shack sits on the left side of the range. Walk through the front doorway, face the blue penguin behind the counter, and press **E**. The wooden ammo board sells permanent ammo unlocks: small revolver rounds cost 400 beans, birdshot costs 450, and slugs cost 500. Standard revolver rounds and buckshot are starter ammo; owned types can be equipped again at the shop without another charge. Pick up the shotgun before buying its ammo.
 
-Each can elimination pays 125 beans; each newly broken wall block pays one bean. Empty holes and repeat damage to an already dead can pay nothing. Reloads stay free. B opens free ammo selection only while Admin is unlocked; regular players use the shop. Beans and unlocks survive deaths; solo-practice progress also survives reloads in this browser. LAN balances are held by the server for the current player session, and proximity, health, inventory and funds are checked on the server. Vercel LAN play requires the shared directory configuration described above.
+Each can elimination pays 125 beans; each newly broken wall block pays one bean. Empty holes and repeat damage to an already dead can pay nothing. Reloads stay free. B opens free ammo selection only while Admin is unlocked; regular players use the shop. Beans and unlocks survive deaths; solo-practice progress also survives reloads in this browser. P2P balances are held by the host browser for the current player session, and proximity, health, inventory and funds are checked by that host. Vercel P2P play requires the shared directory configuration described above.
 
 ### Checking a connection
 
@@ -127,3 +121,16 @@ Play requests mouse capture during the click; slow or unavailable audio no longe
 Bean jumpscares never trigger during normal gameplay. Only the unlocked Admin menu has a **Bean jumpscare** preview, limited to once per 25 seconds. It closes after 1.4 seconds, with Escape/Dismiss, or when Admin is locked. Reduced-motion preferences disable the pop-in animation.
 
 Play waits for connection detection before starting, so an early click cannot accidentally create an undiscoverable solo game. Temporary directory errors can be retried with Play. Changing games waits for any previous signaling poll to finish, preserving the new host handshake. Joining another player requires server-verified admin access; ordinary players simply press Play and remain available for an admin to join.
+
+
+## Dustyard 1v1 and bow
+
+In a P2P game, unlock Admin, select **Dustyard · 1v1**, and press **Set map**. Admins can switch the current shared room even when they are the guest. The arena follows the supplied overhead layout: mirrored end courts, stairs, side lanes, central parapets, stacked cover and a small block-built wagon. Ground and cover are destructible voxels; enclosing boundaries remain solid. A kill awards one point, briefly shows the victim's ragdoll from a camera that pulls back, then restores the map and both opposite-end spawns. Each round starts with a three-second loadout intermission. One player alone waits for an opponent.
+
+Pick revolver ammo plus exactly one secondary (shotgun or bow). **1** equips the revolver; **2** equips the selected secondary. In practice, **3** equips an admin-granted bow. Hold **RMB** to draw the bow and release to shoot, or left-click for an undrawn arrow. Full draw takes 1.1 seconds. Arrow speed increases from 28 to 75 units/second and torso damage from 85 to 100; headshots deal 100 at every charge. Surviving hits bleed for three bursts of five damage. Arrows follow gravity, stop in surfaces and characters, and remain visible for 15 seconds. The host measures charge time. Interrupted draws cancel.
+
+**Tri-shot** ammo changes the cylinder to a triangular prism: three rounds, 75 torso damage, slower 105-unit/second flight, 18-cell penetration, larger flash and slower recoil recovery. It costs 500 beans at GUNZ, or is available in duel loadouts and Admin ammo. Small rounds travel at 245 units/second. Each penetrated voxel reduces the remaining bullet damage by 13% and speed by 9%.
+
+Other players' shots show a world-space muzzle flash and use distance-attenuated, directional HRTF audio. Muzzle messages use a validated offset from the rendered eye, re-anchored to the authoritative player position, rather than rejecting normal prediction latency as an invalid world-space pose. Rejected actions no longer tear down the session.
+
+Local P2P integration preview: `node build-static.mjs`, then `node tests/preview-server.mjs` (localhost only, ephemeral in-memory directory). The browser connection check also tests a map change and 1v1 scoring/reset using two temporary peers; it never changes a real player's room.

@@ -54,7 +54,7 @@ function harness(t,{lanStatus=200,lanBody={multiplayer:true,transport:'webrtc'},
 }
 
 test('Play and Resume have no codes or connection instructions',async t=>{
- const app=harness(t);await app.ready();assert.equal(app.menu.mode(),'lan');assert.equal(app.element('connection-status').textContent,'');
+ const app=harness(t);await app.ready();assert.equal(app.menu.mode(),'p2p');assert.equal(app.element('connection-status').textContent,'');
  app.element('username').value='Player';await app.submit();assert.deepEqual(app.joins,[{name:'Player',adminToken:null}]);
  app.setSession({started:true,online:true,id:'me'});assert.equal(app.element('play').textContent,'Resume');assert.equal(app.element('username').disabled,true);
 });
@@ -97,21 +97,21 @@ test('an unlocked admin can grant weapons or powers before pressing Play',async 
  await app.element('admin-login').onsubmit({submitter:new Element('button'),preventDefault(){}});await app.flush();
  assert.equal(app.element('all-weapons').disabled,false);assert.equal(app.element('power-controls').disabled,false);
  await app.element('all-weapons').onclick();assert.deepEqual(app.joins,[{name:'Owner',adminToken:'verified-admin-token',stayInMenu:true}]);
- assert.equal(app.calls.at(-1).payload.action,'adminLoadout');assert.equal(app.calls.at(-1).payload.token,'created-token');
+ assert.equal(app.calls.at(-1).payload.action,'adminLoadout');assert.equal(app.calls.at(-1).payload.token,'created-token');assert.equal(app.element('play').disabled,false);
  app.element('infinite-ammo').checked=true;await app.element('power-controls').onchange();assert.equal(app.joins.length,1);assert.equal(app.calls.at(-1).payload.powers.infiniteAmmo,true);
 });
 
 
-test('Play cannot enter solo practice while LAN detection is still pending',async t=>{
+test('Play cannot enter solo practice while P2P detection is still pending',async t=>{
  const app=harness(t);app.element('username').value='Early player';app.menu.sessionChanged();
  assert.equal(app.element('play').disabled,true);await app.submit();assert.equal(app.joins.length,0);
- await app.ready();assert.equal(app.element('play').disabled,false);await app.submit();assert.equal(app.joins.length,1);assert.equal(app.menu.mode(),'lan');
+ await app.ready();assert.equal(app.element('play').disabled,false);await app.submit();assert.equal(app.joins.length,1);assert.equal(app.menu.mode(),'p2p');
 });
 
 test('connection failures retry detection instead of silently starting solo',async t=>{
  const app=harness(t,{lanStatus:503,lanBody:{error:'Temporary outage'}});await app.ready();app.element('username').value='Player';
  assert.equal(app.menu.mode(),'error');await app.submit();assert.equal(app.joins.length,0);
- await app.flush();assert.match(app.element('menu-message').textContent,/Connection unavailable/);assert.equal(app.calls.filter(call=>call.url==='/api/health').length,2);
+ await app.flush();assert.match(app.element('menu-message').textContent,/Connection unavailable/);assert.equal(app.calls.filter(call=>call.url==='/api/multiplayer'&&!call.payload).length,2);
  app.element('admin-open').onclick();app.element('admin-code').value='0310';await app.element('admin-login').onsubmit({submitter:new Element('button'),preventDefault(){}});assert.equal(app.menu.isAdmin(),false);
 });
 
@@ -124,4 +124,17 @@ test('jumpscare and stale player Join buttons require an unlocked admin',async t
  const staleJoin=app.element('player-list').find(e=>e.attributes['aria-label']==='Join Friend');
  await app.element('admin-lock').onclick();app.element('bean-scare-preview').onclick();assert.equal(app.scares,1);
  await staleJoin.onclick();assert.equal(app.joins.length,0);assert.match(app.element('admin-message').textContent,/Unlock Admin/);
+});
+
+
+test('admin rows disable joining the current room and full rooms',async t=>{
+ const app=harness(t,{rooms:[{name:'current',players:[{id:'friend',name:'Friend'}]},{name:'full',players:[{id:'one',name:'One'},{id:'two',name:'Two'}]},{name:'open',players:[{id:'three',name:'Three'}]}]});
+ await app.ready();app.setSession({started:true,online:true,id:'me',room:'current'});
+ app.element('admin-open').onclick();app.element('admin-code').value='0310';
+ await app.element('admin-login').onsubmit({submitter:new Element('button'),preventDefault(){}});await app.flush();
+ const row=name=>app.element('player-list').find(e=>e.attributes['aria-label']==='Join '+name);
+ assert.equal(row('Friend').textContent,'Connected');assert.equal(row('Friend').disabled,true);
+ assert.equal(row('One').textContent,'Full');assert.equal(row('One').disabled,true);
+ assert.equal(row('Three').textContent,'Join P2P');assert.equal(row('Three').disabled,false);
+ await row('Friend').onclick();await row('One').onclick();assert.equal(app.joins.length,0);
 });

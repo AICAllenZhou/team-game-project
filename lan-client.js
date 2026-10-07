@@ -1,16 +1,16 @@
-import {API_BASE} from './runtime-config.js';
+import {peerConfiguration,whenChannelOpen} from './peer-connection.mjs';
 import {createRoomEngine} from './room-engine.mjs';
 
-const ACTIONS=new Set(['input','fire','reload','resetWalls','pickup','equip','modify','buy','launch']);
-const EVENTS=new Set(['state','wallState','wallDamage','wallReset','shot','impact','clayBreak']);
-const LAN_ERROR='Could not connect directly. Both players must keep the game open on the same local network. Guest Wi-Fi or device isolation can block LAN connections.';
+const ACTIONS=new Set(['input','fire','reload','resetWalls','pickup','equip','modify','buy','launch','loadout','charge']);
+const EVENTS=new Set(['state','wallState','wallDamage','wallReset','shot','impact','clayBreak','bleed']);
+const LAN_ERROR='Direct P2P connection failed. Keep both games open and try again. A restrictive network or VPN may block direct connections.';
 
-// The directory only carries presence and WebRTC signaling. Gameplay stays on
-// the local network: no public STUN server or relay is used.
+// The directory carries presence, admin authorization and WebRTC signaling.
+// Game commands and frames travel directly between browsers over a data channel.
 export async function directory(action,data={}){
  const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);
  try{
-  const response=await fetch(API_BASE+'/api/multiplayer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...data}),signal:controller.signal,keepalive:action==='leave'||action==='adminLogout'});
+  const response=await fetch('/api/multiplayer',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...data}),signal:controller.signal,keepalive:action==='leave'||action==='adminLogout'});
   const body=await response.text();let result;
   try{result=body?JSON.parse(body):null;}catch{result=null;}
   if(!response.ok){const error=Error(result?.error||result?.message||body.slice(0,200)||'The player directory is unavailable.');error.status=response.status;error.code=result?.code;throw error;}
@@ -20,7 +20,7 @@ export async function directory(action,data={}){
 }
 
 export function createLanClient({onEvent=()=>{},onDisconnect=()=>{},request=directory,RTC=globalThis.RTCPeerConnection,engineFactory=createRoomEngine,timing={}}={}){
- const delays={poll:1000,guestPoll:3000,connectingPoll:250,heartbeat:10000,members:5000,connect:20000,request:5000,disconnect:5000,...timing};
+ const delays={poll:1000,guestPoll:3000,connectingPoll:250,heartbeat:10000,members:5000,connect:30000,request:5000,disconnect:5000,...timing};
  let registration=null,engine=null,generation=0,transitioning=false,closed=false,starting=false,lastState=null,lastWalls=null,active=false,requestSequence=0;
  let tickTimer=null,pollTimer=null,heartbeatTimer=null,membersTimer=null,pollBusy=false,heartbeatBusy=false,membersBusy=false;
  let pollFailures=0,heartbeatFailures=0,memberFailures=0,lastHostMessage=0;
@@ -33,7 +33,7 @@ export function createLanClient({onEvent=()=>{},onDisconnect=()=>{},request=dire
  function notify(event,data){
   if(event==='state')lastState=data;
   if(event==='wallState')lastWalls=data.map(removed=>[...removed]);
-  if(event==='wallReset'&&lastWalls)lastWalls=lastWalls.map(()=>[]);
+  if(event==='wallReset')lastWalls=data.walls||lastWalls?.map(()=>[]);
   if(event==='wallDamage'&&lastWalls?.[data.wallId])lastWalls[data.wallId]=[...new Set([...lastWalls[data.wallId],...data.removed])];
   if(!transitioning&&!closed)onEvent(event,data);
  }
@@ -76,6 +76,7 @@ export function createLanClient({onEvent=()=>{},onDisconnect=()=>{},request=dire
  function disconnect(message){if(closed)return;close();onDisconnect(message);}
  function startHost(){
   engine=engineFactory({emit:broadcast});
+  engine.setMap(registration.mapConfig);
   engine.addPlayer({id:registration.id,name:registration.name,powers:registration.powers,loadout:registration.loadout});
   lastWalls=engine.wallSnapshot();lastState=engine.snapshot();
   tickTimer=setInterval(()=>{if(engine&&!closed)engine.tick();},50);
@@ -87,7 +88,7 @@ export function createLanClient({onEvent=()=>{},onDisconnect=()=>{},request=dire
  async function start({name,targetId,adminToken}={}){
   if(registration)return session();
   if(starting)throw Error('A connection is already being started.');
-  if(typeof RTC!=='function')throw Error('This browser does not support LAN multiplayer. Open the game in a current browser using HTTPS.');
+  if(typeof RTC!=='function')throw Error('This browser does not support P2P multiplayer. Open the game in a current browser using HTTPS.');
   starting=true;closed=false;transitioning=true;
   try{
    const data=await request('register',{name});
@@ -99,6 +100,7 @@ export function createLanClient({onEvent=()=>{},onDisconnect=()=>{},request=dire
   }catch(error){close();throw error;}finally{starting=false;transitioning=false;}
  }
  async function join({joinCode,targetId,adminToken}={}){
+  if(!adminToken)throw Object.assign(Error('Unlock Admin first.'),{status:403});
   if(!registration||closed)throw Error('Join the game before choosing a player.');
   if(transitioning)throw Error('A connection is already being started.');
   transitioning=true;changingMembership=true;clearTimeout(pollTimer);let version=generation,switched=false;
@@ -130,7 +132,7 @@ export function createLanClient({onEvent=()=>{},onDisconnect=()=>{},request=dire
   return request('signal',{token:registration.token,targetId,message});
  }
  function makePeer(id,hostLink){
-  const version=generation,pc=new RTC({iceServers:[]});
+  const version=generation,pc=new RTC(peerConfiguration());
   const peer={id,pc,hostLink,closed:false,channel:null,ice:[],disconnectTimer:null,readyTimer:null,version};peers.set(id,peer);
   pc.onicecandidate=event=>{if(event.candidate&&!peer.closed)void signal(id,{type:'ice',candidate:event.candidate.toJSON?event.candidate.toJSON():event.candidate},version).catch(error=>dropPeer(peer,error));};
   pc.onconnectionstatechange=()=>{
@@ -145,7 +147,7 @@ export function createLanClient({onEvent=()=>{},onDisconnect=()=>{},request=dire
  function attachChannel(peer,channel){
   if(peer.closed||peer.channel||channel.label!=='dustline'){channel.close();return;}
   peer.channel=channel;
-  channel.onopen=()=>{
+  whenChannelOpen(channel,()=>{
    if(peer.closed)return;
    if(!peer.hostLink){
     const player=peer.member;
@@ -155,7 +157,7 @@ export function createLanClient({onEvent=()=>{},onDisconnect=()=>{},request=dire
      clearTimeout(peer.readyTimer);send(peer,{kind:'welcome',state:engine.snapshot(),walls:engine.wallSnapshot()});
     }catch(error){dropPeer(peer,error);}
    }
-  };
+  });
   channel.onmessage=event=>{
    if(peer.closed)return;
    const limit=peer.hostLink?1024*1024:8192;
@@ -267,7 +269,7 @@ export function createLanClient({onEvent=()=>{},onDisconnect=()=>{},request=dire
    return null;
   }
   replaceRegistration(data);
-  if(engine){engine.setPlayerPowers(registration.id,data.powers);const updated=engine.setPlayerLoadout(registration.id,data.loadout);lastState=engine.snapshot();return updated;}
+  if(engine){engine.setMap(data.mapConfig);engine.setPlayerPowers(registration.id,data.powers);const updated=engine.setPlayerLoadout(registration.id,data.loadout);lastState=engine.snapshot();return updated;}
   return ownPlayer();
  }
  function scheduleHeartbeat(){if(!closed&&registration){clearTimeout(heartbeatTimer);heartbeatTimer=setTimeout(runHeartbeat,delays.heartbeat);}}
@@ -289,7 +291,7 @@ export function createLanClient({onEvent=()=>{},onDisconnect=()=>{},request=dire
    const member=members.get(peer.id);if(!member){destroyPeer(peer,Error('Player membership expired.'));continue;}
    peer.member=member;if(peer.channel?.readyState==='open'){engine.setPlayerPowers(peer.id,member.powers);engine.setPlayerLoadout(peer.id,member.loadout);}
   }
-  const own=members.get(registration.id);if(own){registration.powers=own.powers;engine.setPlayerPowers(own.id,own.powers);engine.setPlayerLoadout(own.id,own.loadout);}
+  const own=members.get(registration.id);if(own){engine.setMap(own.mapConfig);registration.powers=own.powers;engine.setPlayerPowers(own.id,own.powers);engine.setPlayerLoadout(own.id,own.loadout);}
   lastState=engine.snapshot();
  }
  function scheduleMembers(){if(!closed&&registration){clearTimeout(membersTimer);membersTimer=setTimeout(runMembers,delays.members);}}

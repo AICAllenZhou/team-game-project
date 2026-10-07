@@ -34,10 +34,11 @@
   <p id="manual-status" class="status" role="status">Ready to start.</p>
   <div id="room-members" hidden><h2>Players in this game</h2><ul id="player-list"></ul></div>
  </section>
+ <section class="card"><h2>Browser P2P check</h2><button id="test-p2p" type="button">Test P2P</button><p id="p2p-status" class="status" role="status">Tests two local peers without joining a player.</p></section>
  <section class="card" aria-labelledby="automatic-heading">
   <h2 id="automatic-heading">Admin connection check</h2>
-  <p class="note muted">Open two temporary players in this browser, join one directly as an admin, and check that game updates travel between them. The temporary connections close when the check finishes.</p>
-  <p class="note muted">A check between separate computers still needs both devices connected to the same local network.</p>
+  <p class="note muted">Open two temporary players in this browser, join one directly as an admin, and check game updates, map selection and a complete 1v1 round. The temporary connections close when the check finishes.</p>
+  <p class="note muted">Separate computers need a network that allows a direct connection. This browser check cannot verify a different computer’s network.</p>
   <form id="automatic-form">
    <label for="check-admin-code">Admin code</label>
    <input id="check-admin-code" name="admin-code" type="password" inputmode="numeric" autocomplete="off" maxlength="32" required>

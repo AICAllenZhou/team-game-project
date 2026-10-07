@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createLanClient,directory} from '../lan-client.js';
 import {createRoomEngine} from '../room-engine.mjs';
 
-function network({blocked=false}={}){
+function network({blocked=false,alreadyOpen=false}={}){
  const connections=new Map(),configs=[];let sequence=0;
  class Channel{
   constructor(){this.label='dustline';this.readyState='connecting';this.bufferedAmount=0;}
@@ -20,7 +20,7 @@ function network({blocked=false}={}){
    this.remoteDescription=description;this.other=connections.get(description.sdp);this.other.other=this;
    if(description.type==='offer'){
     this.channel=new Channel();this.channel.other=this.other.channel;this.other.channel.other=this.channel;
-    queueMicrotask(()=>this.ondatachannel?.({channel:this.channel}));
+    queueMicrotask(()=>{if(alreadyOpen){this.channel.readyState='open';this.other.channel.readyState='open';}this.ondatachannel?.({channel:this.channel});});
    }else if(!blocked){
     queueMicrotask(()=>{
      for(const pc of [this.other,this]){pc.connectionState='connected';pc.channel.readyState='open';pc.channel.onopen?.();pc.onconnectionstatechange?.();}
@@ -93,7 +93,7 @@ test('LAN peers exchange real engine state and sender-bound combat without a rel
  assert.equal(joined.lobbyCode,first.joinCode);assert.equal(joined.hostId,first.id);
  assert.equal(joined.initialState.cans.length,3);
  assert.deepEqual(joined.initialState.players.map(player=>player.name),['Host','Guest']);
- assert.ok(configs.every(config=>config.iceServers.length===0),'no public STUN or TURN service');
+ assert.ok(configs.every(config=>config.iceServers.length===1&&config.iceServers[0].urls.startsWith('stun:')),'direct discovery uses STUN with no TURN relay');
 
  assert.equal(await guest.command('input',{active:false,id:first.id,powers:{infiniteHp:true}}),null);
  await assert.rejects(guest.command('powers',{infiniteHp:true}),/Invalid game command/);
@@ -128,7 +128,7 @@ test('blocked LAN join reports failure and does not create a separate game',asyn
  const {create}=fixture(t,{blocked:true}),disconnects=[];
  const host=create(),guest=create({onDisconnect:message=>disconnects.push(message)});
  const first=await host.start({name:'Player',createLobby:true,adminToken:'admin'}),second=await guest.start({name:'Guest',createLobby:true,adminToken:'admin'});
- await assert.rejects(guest.join({targetId:first.id,adminToken:'admin'}),/same local network/);
+ await assert.rejects(guest.join({targetId:first.id,adminToken:'admin'}),/Direct P2P/);
  assert.equal(guest.session(),null);assert.equal(disconnects.length,0);
  await assert.rejects(guest.command('reload'),/not connected/);
 });
@@ -212,4 +212,14 @@ test('closing while waiting for the previous poll cancels joining without a dire
  await guest.start({name:'Admin'});await until(()=>pollStarted);
  const joining=guest.join({targetId:'unused',adminToken:'admin'});
  guest.close();releasePoll();await assert.rejects(joining,/canceled/);assert.equal(joinRequested,false);
+});
+
+
+test('an already-open incoming channel sends welcome exactly once',async t=>{
+ const {create}=fixture(t,{alreadyOpen:true});let engine,additions=0;
+ const host=create({engineFactory:options=>{engine=engineFactory(options);const add=engine.addPlayer;engine.addPlayer=(...args)=>{additions++;return add(...args);};return engine;}}),admin=create();
+ const target=await host.start({name:'Player'});await admin.start({name:'Admin'});
+ const joined=await admin.join({targetId:target.id,adminToken:'admin'});
+ assert.equal(joined.initialState.players.length,2);assert.equal(additions,2);
+ await admin.command('input',{active:false,yaw:.2});
 });

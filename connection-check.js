@@ -1,3 +1,4 @@
+import {probePeerConnection} from './peer-connection.mjs';
 import {createLanClient,directory} from './lan-client.js';
 
 const $=id=>document.getElementById(id);
@@ -95,10 +96,29 @@ $('automatic-form').addEventListener('submit',async event=>{
    await waitUntil(()=>Math.abs((guest.session()?.initialState?.players?.find(player=>player.id===second.id)?.yaw??Infinity)-.321)<.00001,checkFailure);
    assert(Math.abs((host.session()?.initialState?.players?.find(player=>player.id===second.id)?.yaw??Infinity)-.321)<.00001,'The host did not apply the joined player’s input.');
    checkpoint('Game commands and live state updates reached both players.');
+   await directory('adminMap',{token:second.token,adminToken:temporaryAdminToken,mapId:'duel'});
+   await guest.refreshOwnPowers();
+   await waitUntil(()=>guest.session()?.initialState?.duel?.phase==='intermission',checkFailure);
+   await host.command('loadout',{secondary:'bow',revolver:'heavy',equip:'revolver'});
+   await guest.command('loadout',{secondary:'bow',revolver:'small'});
+   await waitUntil(()=>guest.session()?.initialState?.duel?.phase==='active',checkFailure);
+   const shot={muzzleOffset:{x:1,y:-.5,z:0},direction:{x:1,y:0,z:0}};
+   await host.command('fire',{...shot,shotId:'check-heavy-1'});
+   await waitUntil(()=>guest.session()?.initialState?.players.find(p=>p.id===second.id)?.hp===25,checkFailure);
+   await host.command('fire',{...shot,shotId:'check-heavy-2'});
+   await waitUntil(()=>guest.session()?.initialState?.duel?.phase==='death',checkFailure);
+   assert(guest.session().initialState.duel.scores[first.id]===1,'The round score did not synchronize.');
+   checkpoint('Admin changed the shared map; heavy rounds and 1v1 scoring synchronized.');
+   await waitUntil(()=>guest.session()?.initialState?.duel?.phase==='intermission',checkFailure);
+   const next=guest.session().initialState;
+   assert(next.players.every(p=>p.hp===100),'Round respawn did not restore both players.');
+   assert(next.players[0].x===-15.5&&next.players[1].x===15.5,'Round spawns are not at opposite ends.');
+   assert(guest.session().wallState.every(removed=>removed.length===0),'Arena damage was not reset.');
+   checkpoint('Map reset, opposite spawns and three-second loadout intermission verified.');
   };
-  const deadline=new Promise((_,reject)=>{deadlineTimer=setTimeout(()=>{failure=Error('The connection check timed out. Check the network and try again.');closeTemporary();reject(failure);},45000);});
+  const deadline=new Promise((_,reject)=>{deadlineTimer=setTimeout(()=>{failure=Error('The connection check timed out. Check the network and try again.');closeTemporary();reject(failure);},75000);});
   await Promise.race([run(),deadline]);
-  status('automatic-status','Passed — admin joining, bean cans and game updates verified.','success');
+  status('automatic-status','Passed — joining, map selection, combat, 1v1 scores and resets verified.','success');
  }catch(error){status('automatic-status','Check failed: '+error.message,'error');}
  finally{
   code='';finished=true;clearTimeout(deadlineTimer);closeTemporary();await logoutTemporary();
@@ -106,3 +126,9 @@ $('automatic-form').addEventListener('submit',async event=>{
  }
 });
 window.addEventListener('pagehide',()=>{unloading=true;manualClient?.close();closeTemporary();void logoutTemporary();});
+
+$('test-p2p').onclick=async()=>{
+ const button=$('test-p2p');button.disabled=true;status('p2p-status','Connecting two local WebRTC peers…');
+ try{await probePeerConnection();status('p2p-status','Passed — direct WebRTC data travelled between two local peers.','success');}
+ catch(error){status('p2p-status',error.message,'error');}finally{button.disabled=false;}
+};

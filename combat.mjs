@@ -16,7 +16,7 @@ export function setPowers(player,powers){
  if(player.powers.infiniteHp){player.hp=MAX_HP;player.deadUntil=0;}
  if(player.powers.infiniteAmmo){
   player.reloadUntil=0;player.ammo=ammoProfile(player.weapon,player.mods).capacity;
-  player.ammoByWeapon={revolver:ammoProfile('revolver',player.mods).capacity,shotgun:ammoProfile('shotgun',player.mods).capacity};
+  player.ammoByWeapon={revolver:ammoProfile('revolver',player.mods).capacity,shotgun:ammoProfile('shotgun',player.mods).capacity,bow:1};
  }
  return player.powers;
 }

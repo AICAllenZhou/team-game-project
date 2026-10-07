@@ -21,9 +21,10 @@
  <p id="admin-message" role="status"></p>
  <div id="admin-controls" hidden>
   <button id="all-weapons" type="button">Get all weapons</button><button id="bean-scare-preview" class="secondary" type="button">Bean jumpscare</button>
+  <label for="map-choice">Map</label><select id="map-choice"><option value="practice">Practice range</option><option value="duel">Dustyard · 1v1</option></select><button id="set-map" type="button">Set map</button>
   <h3>Powers</h3>
   <fieldset id="power-controls" disabled><label><input id="no-recoil" type="checkbox"> No recoil</label><label><input id="infinite-ammo" type="checkbox"> Infinite ammo</label><label><input id="infinite-hp" type="checkbox"> Infinite health</label><label><input id="no-cooldown" type="checkbox"> No shot cooldown</label><label><input id="full-auto" type="checkbox"> Full auto</label></fieldset>
-  <div class="panel-heading"><h3>Players online</h3><button id="admin-refresh" class="secondary" type="button">Refresh</button></div>
+  <div class="panel-heading"><h3>Players · P2P</h3><button id="admin-refresh" class="secondary" type="button">Refresh</button></div>
   <div id="player-list" aria-live="polite"></div><button id="admin-lock" class="secondary" type="button">Lock panel</button>
  </div>
 </section>
