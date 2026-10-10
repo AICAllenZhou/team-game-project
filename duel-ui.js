@@ -5,7 +5,7 @@ export function createDuelUI({choose,resume}){
  panel.innerHTML='<h2>Next round</h2><p id="round-countdown"></p><label>Revolver ammo<select id="duel-revolver"></select></label><label>Second weapon<select id="duel-secondary"><option value="shotgun">Sawed-off shotgun</option><option value="bow">Bow</option></select></label><label id="duel-shell-label">Shotgun shells<select id="duel-shells"></select></label><button id="duel-ready">Ready</button><p id="duel-message" role="status"></p>';
  document.body.append(panel);
  const get=id=>panel.querySelector('#'+id);let epoch=-1,closed=false,current=null;
- for(const [id,weapon] of [['duel-revolver','revolver'],['duel-shells','shotgun']])for(const [mod,profile] of Object.entries(AMMO_MODS[weapon])){const option=document.createElement('option');option.value=mod;option.textContent=profile.label;get(id).append(option);}
+ for(const [id,weapon] of [['duel-revolver','revolver'],['duel-shells','shotgun']])for(const [mod,profile] of Object.entries(AMMO_MODS[weapon])){if(profile.adminOnly)continue;const option=document.createElement('option');option.value=mod;option.textContent=profile.label;get(id).append(option);}
  async function submit(){try{get('duel-message').textContent='';await choose({secondary:get('duel-secondary').value,revolver:get('duel-revolver').value,shotgun:get('duel-shells').value});}catch(e){get('duel-message').textContent=e.message;}}
  for(const id of ['duel-revolver','duel-secondary','duel-shells'])get(id).onchange=()=>{get('duel-shell-label').hidden=get('duel-secondary').value==='bow';void submit();};
  get('duel-ready').onclick=()=>{closed=true;panel.hidden=true;document.body.classList.remove('choosing-loadout');resume();};
@@ -15,7 +15,7 @@ export function createDuelUI({choose,resume}){
   const seconds=Math.max(0,Math.ceil((duel.until-time)/1000));
   score.textContent=state.players.map(p=>p.name+' '+(duel.scores[p.id]||0)).join('   :   ')+' · '+(duel.phase==='active'?'Round '+duel.round:duel.phase==='waiting'?'Waiting for opponent':duel.phase==='death'?'Round over':'Starts in '+seconds);
   const choosing=['intermission','waiting'].includes(duel.phase);
-  if(epoch!==duel.epoch){epoch=duel.epoch;closed=false;const me=state.players.find(p=>p.id===id);get('duel-revolver').value=me?.mods.revolver||'standard';get('duel-secondary').value=me?.secondary||'shotgun';get('duel-shells').value=me?.mods.shotgun||'standard';get('duel-shell-label').hidden=get('duel-secondary').value==='bow';}
+  if(epoch!==duel.epoch){epoch=duel.epoch;closed=false;const me=state.players.find(p=>p.id===id);get('duel-revolver').value=AMMO_MODS.revolver[me?.mods.revolver]?.adminOnly?'standard':me?.mods.revolver||'standard';get('duel-secondary').value=me?.secondary||'shotgun';get('duel-shells').value=me?.mods.shotgun||'standard';get('duel-shell-label').hidden=get('duel-secondary').value==='bow';}
   const visible=choosing&&!closed;if(visible&&panel.hidden)document.exitPointerLock();panel.hidden=!visible;document.body.classList.toggle('choosing-loadout',visible);
   get('round-countdown').textContent=duel.phase==='waiting'?'Choose your loadout':seconds+' seconds';
  }

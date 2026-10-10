@@ -106,9 +106,11 @@ test('Redis REST uses server credentials, bounds requests and hides provider err
 test('admin loadouts are validated and cookie resets target only the selected player until acknowledged',async()=>{
  const app=setup(),a=await register(app,'A',false),b=await register(app,'B',false),adminToken=await login(app);
  await app.call({action:'adminLoadout',token:a.token,allWeapons:true},403);
+ await app.call({action:'adminLoadout',token:a.token,weapon:'revolver',mod:'laser'},403);
  await app.call({action:'adminLoadout',token:a.token,adminToken,weapon:'shotgun',mod:'bad'},400);
  const first=await app.call({action:'adminLoadout',token:a.token,adminToken,targetId:b.id,allWeapons:true});assert.equal(first.loadout.hasShotgun,true);
  const second=await app.call({action:'adminLoadout',token:a.token,adminToken,weapon:'shotgun',mod:'slug'});assert.equal(second.loadout.mods.shotgun,'slug');assert.equal(second.loadout.hasShotgun,true);assert.notEqual(second.loadout.revision,first.loadout.revision);
+ const laser=await app.call({action:'adminLoadout',token:a.token,adminToken,weapon:'revolver',mod:'laser'});assert.equal(laser.loadout.mods.revolver,'laser');
  assert.equal((await app.call({action:'heartbeat',token:b.token})).loadout,undefined);
  await app.call({action:'adminPowers',token:a.token,adminToken,powers:{noCooldown:true,fullAuto:true}});
  assert.equal((await app.call({action:'heartbeat',token:a.token})).powers.noCooldown,true);

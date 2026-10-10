@@ -57,7 +57,9 @@ test('regular players host shared cans and only an admin can join',async()=>{
    while(true){const {value,done}=await reader.read();assert.equal(done,false);buffer+=new TextDecoder().decode(value);const match=buffer.match(/event: state\ndata: ([^\n]+)/);if(match){const state=JSON.parse(match[1]);assert.equal(state.players.length,2);assert.equal(state.cans.length,3);break;}}
   }finally{clearTimeout(timer);controller.abort();}
   await post('admin/loadout',{token:guest.token,allWeapons:true},403);
+  await post('admin/loadout',{token:guest.token,weapon:'revolver',mod:'laser'},403);
   const loaded=await post('admin/loadout',{token:guest.token,adminToken,allWeapons:true,weapon:'revolver',mod:'small'});assert.equal(loaded.hasShotgun,true);assert.equal(loaded.mods.revolver,'small');
+  const laser=await post('admin/loadout',{token:guest.token,adminToken,weapon:'revolver',mod:'laser'});assert.equal(laser.mods.revolver,'laser');
   await post('admin/resetCookie',{targetId:host.id},403);
   await post('admin/resetCookie',{targetId:host.id,adminToken});
   assert.equal((await post('admin/players',{adminToken})).rooms[0].players.find(p=>p.id===host.id).cookieResetPending,true);

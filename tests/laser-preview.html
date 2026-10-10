@@ -1,0 +1,28 @@
+<!doctype html><meta charset="utf-8"><title>Dustyard and Laser preview</title>
+<style>body{margin:0;background:#9b9387;color:#fff;font:16px system-ui}canvas{display:block}nav{position:fixed;left:16px;top:14px}button{font:inherit;padding:8px;margin:3px;background:#342d24;color:#eee;border:1px solid #8c7658;border-radius:5px}output{display:block;margin:8px;text-shadow:0 1px 3px #000}</style>
+<nav><button id="arena">Arena overview</button><button id="spawn">Spawn view</button><button id="laser">Laser view</button><button id="fire">Fire laser</button><button id="freeze">Freeze shot</button><button id="reset">Reset walls</button><output id="status">100.8 × 50.4 arena · 0.3-unit blocks</output></nav>
+<script type="module">
+import * as T from '/vendor/three.module.js';
+import {DUEL_SOLIDS,duelSpawn} from '/arena.mjs';
+import {createVoxelWalls} from '/voxel-walls.mjs';
+import {createVoxelWallView} from '/voxel-wall-view.js';
+import {createCanCharacter,createCanEffects} from '/can-characters.js';
+import {createLaserEffects} from '/laser-view.js';
+import {traceLaser} from '/projectile-physics.mjs';
+import {AMMO_MODS} from '/weapons.mjs';
+const renderer=new T.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setClearColor(0x9b9387);document.body.append(renderer.domElement);
+const scene=new T.Scene(),camera=new T.PerspectiveCamera(40,innerWidth/innerHeight,.05,300);scene.add(new T.HemisphereLight(0xc9d0dc,0x705237,1.9));const sun=new T.DirectionalLight(0xffd09a,2.6);sun.position.set(-20,18,15);scene.add(sun);
+const world=createVoxelWalls('duel'),walls=createVoxelWallView(scene,world),beams=createLaserEffects(scene),food=createCanEffects(scene),cans=[];
+for(const b of DUEL_SOLIDS){const mesh=new T.Mesh(new T.BoxGeometry(b.w,b.h,b.d),new T.MeshStandardMaterial({color:0x796345}));mesh.position.set(b.x,b.y,b.z);scene.add(mesh);}
+for(const i of [0,1]){const p=duelSpawn(i),can=createCanCharacter(i);can.position.set(p.x,p.y,p.z);scene.add(can);cans.push(can);}
+const target=createCanCharacter(2);target.position.set(-30,.6,0);scene.add(target);
+const status=document.querySelector('#status');let frozen=false,last=performance.now();
+function overview(){camera.fov=40;camera.updateProjectionMatrix();camera.position.set(0,120,64);camera.lookAt(0,0,0);cans[0].visible=true;status.textContent='100.8 × 50.4 arena · 0.3-unit blocks';}
+function laser(){camera.fov=70;camera.updateProjectionMatrix();camera.position.set(-45,4.3,6);camera.lookAt(-33,1.5,0);cans[0].visible=false;status.textContent='Admin Laser · instant wall tunnel · no recoil';}
+function shoot(freeze=false){laser();frozen=freeze;const ray={origin:{x:-45,y:1.65,z:0},direction:{x:1,y:0,z:0}},beam=traceLaser(ray,AMMO_MODS.revolver.laser,[{id:'target',x:-30,y:.6,z:0,hp:100}],[],world);
+ beams.fire(ray.origin,beam.end);let count=0;for(const hit of beam.impacts){for(const change of hit.wallChanges){count+=change.removed.length;walls.burst(change.wallId,change.removed);}if(hit.hit)food.hit(target,hit);}walls.update(0);status.textContent=(freeze?'Frozen laser frame · ':'Laser fired · ')+count+' small blocks removed';}
+document.querySelector('#arena').onclick=overview;document.querySelector('#laser').onclick=laser;document.querySelector('#fire').onclick=()=>shoot();document.querySelector('#freeze').onclick=()=>shoot(true);
+document.querySelector('#spawn').onclick=()=>{const p=duelSpawn(0);camera.fov=100;camera.updateProjectionMatrix();camera.position.set(p.x,p.y+1.5,p.z);camera.lookAt(0,p.y+1.5,0);cans[0].visible=false;status.textContent='Spawn protected behind cover · same player height';};
+document.querySelector('#reset').onclick=()=>{world.reset();walls.update(0);beams.clear();frozen=false;status.textContent='Walls reset';};
+function frame(now){const dt=Math.min(.05,(now-last)/1000);last=now;if(!frozen){beams.update(dt);walls.update(dt);food.update(dt);}renderer.render(scene,camera);requestAnimationFrame(frame);}overview();requestAnimationFrame(frame);
+</script>

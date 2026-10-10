@@ -1,4 +1,4 @@
-import {duelSpawn} from './arena.mjs';
+import {duelSpawn,DUEL_SCALE} from './arena.mjs';
 import {probePeerConnection} from './peer-connection.mjs';
 import {createLanClient,directory} from './lan-client.js';
 
@@ -49,8 +49,8 @@ $('leave-connection').addEventListener('click',()=>leaveManual());
 
 function checkpoint(label){const item=document.createElement('li');item.textContent=label;item.dataset.done='true';$('check-results').append(item);}
 function assert(condition,message){if(!condition)throw Error(message);}
-async function waitUntil(condition,checkFailure){
- const deadline=Date.now()+5000;
+async function waitUntil(condition,checkFailure,timeout=5000){
+ const deadline=Date.now()+timeout;
  while(!condition()){
   checkFailure();if(Date.now()>deadline)throw Error('The connected player did not receive a game update.');
   await new Promise(resolve=>setTimeout(resolve,40));
@@ -105,7 +105,9 @@ $('automatic-form').addEventListener('submit',async event=>{
    await waitUntil(()=>guest.session()?.initialState?.duel?.phase==='active',checkFailure);
    // Spawn cover deliberately blocks the opening sightline. Walk into the lane.
    await Promise.all([host.command('input',{active:true,x:0,z:1,yaw:0}),guest.command('input',{active:true,x:0,z:1,yaw:0})]);
-   await waitUntil(()=>guest.session()?.initialState?.players.every(p=>p.z>=2.1),checkFailure);
+   await waitUntil(()=>guest.session()?.initialState?.players.every(p=>p.z>=2.1*DUEL_SCALE),checkFailure);
+   await Promise.all([host.command('input',{active:true,x:1,z:0,yaw:0}),guest.command('input',{active:true,x:-1,z:0,yaw:0})]);
+   await waitUntil(()=>guest.session()?.initialState?.players.every(p=>Math.abs(p.x)<20),checkFailure,15000);
    await Promise.all([host.command('input',{active:false}),guest.command('input',{active:false})]);
    const stoppedAt=guest.session().initialState.time;
    await waitUntil(()=>guest.session()?.initialState?.time>=stoppedAt+600,checkFailure);

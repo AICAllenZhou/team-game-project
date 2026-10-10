@@ -136,3 +136,9 @@ Other players' shots show a world-space muzzle flash and use distance-attenuated
 Local P2P integration preview: `node build-static.mjs`, then `node tests/preview-server.mjs` (localhost only, ephemeral in-memory directory). The browser connection check also tests a map change and 1v1 scoring/reset using two temporary peers; it never changes a real player's room.
 
 The revised Dustyard uses exact mirrored geometry, chamfered end courts and can-height crates. Both spawns are concealed by full-height destructible cover. The shared movement controller steps over remnants up to 0.38 units, slides along walls, bridges holes smaller than the player footprint, and checks overhead clearance. Grounded camera height eases over steps without changing horizontal mouse response. Jumping requires a fresh Space press while grounded; holding it cannot add lift or repeatedly jump.
+
+
+## Large arena and admin Laser ammo
+Dustyard now spans 100.8 by 50.4 units: three times its previous width and length. Destructible cells remain 0.3 units, and platform/stair heights stay walkable. Spawn cover and both halves remain symmetric. Coplanar voxel faces are merged for rendering, with a tiled cell grid; holes and collision still use individual cells.
+
+Unlock Admin, equip the revolver, and press **B** to choose **Laser**. It fires a short red beam with no recoil or muzzle flash, instantly cutting a wide tunnel through destructible cover and damaging cans along its path. Solid map boundaries stop the beam. Laser is excluded from the normal shop and round loadout choices; the authority requires a verified admin ammo grant. It uses the revolver's six-round cylinder and reload unless Infinite Ammo is enabled.

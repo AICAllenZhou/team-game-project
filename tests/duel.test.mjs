@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createRoomEngine} from '../room-engine.mjs';
 import {createVoxelWalls} from '../voxel-walls.mjs';
+import {duelSpawn,DUEL_SCALE} from '../arena.mjs';
 import {AMMO_MODS,chargedArrow} from '../weapons.mjs';
 import {resolveBarrelShot,move} from '../simulation.mjs';
 import {launchProjectile,advanceProjectile} from '../projectile-physics.mjs';
@@ -17,7 +18,7 @@ test('muzzle offsets survive stale prediction while rejecting forged reach and i
 test('duel scores once, shows death before a 3-second intermission, resets blocks and opposite spawns',()=>{
  const f=fixture(),e=f.engine;e.setMap({id:'duel',revision:'map-1'});
  assert.equal(e.snapshot().duel.phase,'intermission');assert.equal(e.snapshot().cans.length,0);
- assert.equal(f.player('a').x,-15.3);assert.equal(f.player('b').x,15.3);
+ assert.equal(f.player('a').x,duelSpawn(0).x);assert.equal(f.player('b').x,duelSpawn(1).x);
  e.command('a','loadout',{secondary:'bow',revolver:'heavy',equip:'revolver'});
  assert.equal(f.player('a').hasShotgun,false);assert.equal(f.player('a').hasBow,true);assert.equal(f.player('a').ammo,3);
  e.command('a','equip',{weapon:'shotgun'});assert.equal(f.player('a').weapon,'revolver');
@@ -27,20 +28,21 @@ test('duel scores once, shows death before a 3-second intermission, resets block
  const shoot=direction=>e.command('a','fire',{muzzleOffset:{x:1,y:-.5,z:0},direction});
  shoot({x:0,y:-1,z:0});f.step(6);assert.ok(e.wallSnapshot().some(w=>w.length));
  // Move both players out from behind the new spawn cover before duelling.
- for(const id of ['a','b'])e.command(id,'input',{active:true,x:0,z:1,yaw:0});f.step(11);
+ for(const id of ['a','b'])e.command(id,'input',{active:true,x:0,z:1,yaw:0});f.step(32);
+ e.command('a','input',{active:true,x:1,z:0,yaw:0});e.command('b','input',{active:true,x:-1,z:0,yaw:0});f.step(120);
  for(const id of ['a','b'])e.command(id,'input',{active:false});f.step(12);
- shoot({x:1,y:0,z:0});f.step(8);assert.equal(f.player('b').hp,25);
- shoot({x:1,y:0,z:0});f.step(8);assert.equal(f.player('b').hp,0);assert.equal(e.snapshot().duel.phase,'death');assert.equal(e.snapshot().duel.scores.a,1);
- f.step(36);assert.equal(e.snapshot().duel.phase,'intermission');assert.equal(f.player('b').hp,100);assert.equal(f.player('a').x,-15.3);assert.ok(e.wallSnapshot().every(w=>!w.length));
+ shoot({x:1,y:0,z:0});f.step(12);assert.equal(f.player('b').hp,25);
+ shoot({x:1,y:0,z:0});f.step(12);assert.equal(f.player('b').hp,0);assert.equal(e.snapshot().duel.phase,'death');assert.equal(e.snapshot().duel.scores.a,1);
+ f.step(36);assert.equal(e.snapshot().duel.phase,'intermission');assert.equal(f.player('b').hp,100);assert.equal(f.player('a').x,duelSpawn(0).x);assert.ok(e.wallSnapshot().every(w=>!w.length));
  assert.equal(e.snapshot().duel.scores.a,1);f.step(60);assert.equal(e.snapshot().duel.phase,'active');
  e.removePlayer('b');assert.equal(e.snapshot().duel.phase,'waiting');
 });
 test('floor and cover are destructible, solid boundaries stop shots and players stand on the end platforms',()=>{
- const walls=createVoxelWalls('duel'),p={x:-15.3,y:.6,z:0,vy:0,yaw:0,pitch:0};
+ const walls=createVoxelWalls('duel'),p=duelSpawn(0);
  for(let i=0;i<20;i++){const old={...p};move(p,{x:0,z:0},.05,{mapId:'duel'});walls.collide(p,old);}
  assert.ok(Math.abs(p.y-.6)<.001);
  const floor=walls.trace({x:0,y:2,z:7.9},{x:0,y:-1,z:0});assert.ok(floor);walls.damage(floor,2);assert.ok(walls.snapshot().some(w=>w.length));
- const bullet=launchProjectile({origin:{x:16.5,y:4,z:0},direction:{x:1,y:0,z:0}},AMMO_MODS.revolver.heavy);
+ const bullet=launchProjectile({origin:{x:16.5*DUEL_SCALE,y:4,z:0},direction:{x:1,y:0,z:0}},AMMO_MODS.revolver.heavy);
  const hits=advanceProjectile(bullet,.1,[],[],walls);assert.equal(hits.at(-1).surface,'world');assert.equal(bullet.alive,false);
 });
 test('heavy rounds hit for 75 and penetrate easily; small rounds fly faster; walls reduce speed and damage',()=>{

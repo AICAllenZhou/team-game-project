@@ -23,7 +23,7 @@ test('voxel traversal handles reverse rays, parallel misses and internal origins
 
 test('wall rendering omits hidden faces and rebuild versions change only for damaged walls',async()=>{
  const {wallSurface}=await import('../voxel-wall-view.js');const w=createVoxelWalls(),a=w.walls[0],g=wallSurface(a);
- assert.equal(g.attributes.position.count,12*(a.nx*a.ny+a.nx*a.nz+a.ny*a.nz));assert.ok(g.attributes.position.count<a.cells.length*36/4);
+ assert.equal(g.attributes.position.count,36);assert.ok(g.attributes.position.count<a.cells.length*36/4);
  const version=w.walls[1].version;w.damage(w.trace(origin,direction));assert.equal(w.walls[1].version,version);assert.equal(a.version,1);
  const cut=wallSurface(a);assert.ok(cut.attributes.position.count>g.attributes.position.count);g.dispose();cut.dispose();
 });

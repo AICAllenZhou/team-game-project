@@ -1,3 +1,4 @@
+import {createLaserEffects} from './laser-view.js';
 import {createDuelUI} from './duel-ui.js';
 import {createBow,animateBow,createArrow,releaseBow,resetBow,updateBowVisibility,ARROW_TIP_Z} from './bow-view.js';
 import {createBowMarker,placeBowMarker,createBowGuide,placeBowGuide,seatArrow,wobbleStuckArrow} from './bow-feedback.js';
@@ -10,7 +11,7 @@ import {createWallet,restoreWallet,canShop,awardBeans,purchaseAmmo} from './shop
 import {createShopView} from './shop-view.js';
 import {createShopMenu} from './shop-ui.js';
 import {createCanCharacter,createCanEffects,resetCan} from './can-characters.js';
-import {launchProjectile,advanceProjectile,advanceVisualProjectile,predictArrowImpact} from './projectile-physics.mjs';
+import {launchProjectile,advanceProjectile,advanceVisualProjectile,predictArrowImpact,traceLaser} from './projectile-physics.mjs';
 import {createMenu} from './menu.js';
 import {installBeanScare} from './bean-scare.js';
 import {API_BASE} from './runtime-config.js';
@@ -33,7 +34,7 @@ const $=id=>document.getElementById(id);
 const gameLoop=createGameLoop({onFrame:now=>frame(now)});
 let renderReady=false,inputTimer=null,idleTimer=null,pendingState=null,stopInputPending=false;
 const renderer=new THREE.WebGLRenderer({canvas:$('game'),antialias:false});renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.setClearColor(0x9b9387);
-const scene=new THREE.Scene();scene.fog=new THREE.Fog(0x9b9387,38,100);
+const scene=new THREE.Scene();scene.fog=new THREE.Fog(0x9b9387,38,100);const laserEffects=createLaserEffects(scene);
 const shellPhysics=createShellPhysics(scene),canEffects=createCanEffects(scene,{floorAt:(x,z,y)=>mapId==='duel'?wallWorld.floorAt(x,z,y):0});
 function ejectShells(frame){for(const side of [-1,1])shellPhysics.eject(frame,side*SHOTGUN_SEPARATION/(2*SHOTGUN_MODEL_SCALE));}
 const scenery=new THREE.Group();scene.add(scenery);
@@ -80,7 +81,7 @@ const colorShift=new THREE.ShaderMaterial({
  }`
 });
 const screenScene=new THREE.Scene(),screenCamera=new THREE.Camera();screenScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),colorShift));
-const camera=new THREE.PerspectiveCamera(100,innerWidth/innerHeight,.05,160);camera.rotation.order='YXZ';scene.add(camera);
+const camera=new THREE.PerspectiveCamera(100,innerWidth/innerHeight,.05,240);camera.rotation.order='YXZ';scene.add(camera);
 scene.add(new THREE.HemisphereLight(0xc9d0dc,0x705237,1.9));const sun=new THREE.DirectionalLight(0xffd09a,2.6);sun.position.set(-20,18,15);sun.castShadow=true;sun.shadow.mapSize.set(1024,1024);Object.assign(sun.shadow.camera,{left:-35,right:35,top:35,bottom:-35,far:90});sun.shadow.bias=-.001;scene.add(sun);
 const mat=(color)=>new THREE.MeshStandardMaterial({color,roughness:.85,flatShading:true});
 const sand=mat(0xa8895c),edge=mat(0x796345),skin=mat(0xd7b18a),steel=mat(0x484b4a),wood=mat(0x633f2a),hat=mat(0x493d2b);
@@ -222,7 +223,7 @@ const bowMeter=document.createElement('div');bowMeter.id='bow-charge';bowMeter.h
 const duelUI=createDuelUI({choose:data=>post('loadout',data),resume:()=>{menu?.close();captureMouse().catch(()=>syncActivity(false));}});
 function clearArrows(){bowMarker.visible=bowGuide.visible=false;nextBowPreview=0;for(const a of stuckArrows)a.mesh.removeFromParent();stuckArrows.length=0;}
 function setMapView(next){
- if(next===mapId)return;mapId=next;wallWorld.setMap(next);wallView.update(0);clearArrows();
+ if(next===mapId)return;mapId=next;laserEffects.clear();scene.fog.near=next==='duel'?100:38;scene.fog.far=next==='duel'?230:100;const span=next==='duel'?65:35;Object.assign(sun.shadow.camera,{left:-span,right:span,top:span,bottom:-span,far:180});sun.shadow.camera.updateProjectionMatrix();wallWorld.setMap(next);wallView.update(0);clearArrows();
  const practice=next==='practice';scenery.visible=grid.visible=practice;duelScenery.visible=!practice;pickupStand.visible=practice;skeetView.machine.visible=practice;
  for(const t of targets.values())t.group.visible=practice;for(const g of dummies)g.visible=practice;
  resetButton.hidden=!practice;renderer.shadowMap.needsUpdate=true;
@@ -245,6 +246,7 @@ function lodgeArrow(result){
 }
 function remoteShot(s){
  if(s.id===id||s.id==='local'||s.pellet)return;
+ if(s.profile?.laser){audio?.play(1,s.origin);return;}
  const g=peers.get(s.id),rate=s.weapon==='shotgun'?.82:1;
  if(s.weapon==='bow'){if(g)releaseBow(g.userData.bow);audio?.arrow?.(s.origin,s.profile?.charge||0);return;}
  audio?.play(rate,s.origin);
@@ -274,6 +276,7 @@ function shotEffect(s,predicted=false){
  if(!gameLoop.running)return;
  if(!online)for(const change of s.wallChanges||[])wallView.burst(change.wallId,change.removed);
  if(!predicted)remoteShot(s);
+ if(s.profile?.laser){if(s.laserEnd)laserEffects.fire(s.origin,s.laserEnd);return;}
  if(s.pellets){s.pellets.forEach((pellet,i)=>shotEffect({...pellet,id:s.id,shotId:`${s.shotId}/${i}`,weapon:'shotgun',bulletSize:s.bulletSize,profile:s.profile,pellet:true},predicted));return;}
 
  const existing=s.id===id&&s.shotId?pendingShots.get(s.shotId):null;
@@ -421,6 +424,16 @@ function networkError(e){if(joining)return;leaveLobby();joinError(e.message+' â€
 function fire(requestFan,now=gameLoop.now(),both=false){
  if(!document.pointerLockElement||local.hp<=0||local.reloadUntil||reloading||duelState&&duelState.phase!=='active')return;
  if(!local.ammo){reload();return;}
+ const shotProfile=ammoProfile(weapon,local.mods);
+ if(shotProfile.laser){
+  if(!menu?.isAdmin()||!local.powers?.noCooldown&&now-lastShot<250)return;
+  const {origin,direction}=captureAim(),shotId=String(++shotSequence),profile=shotProfile;
+  lastShot=now;lastShotWeapon=weapon;queuedFanClick=false;wristSpring.angle=wristSpring.velocity=cameraSpring.angle=cameraSpring.velocity=wristTwist=0;shotExposure.energy=shotExposure.visible=barrelHeat=0;sound();
+  if(!local.powers?.infiniteAmmo)local.ammo--;ammoByWeapon[weapon]=local.ammo;
+  if(online)post('fire',shotPayload(origin,direction,{shotId})).catch(actionError);
+  else{const beam=traceLaser({origin,direction},profile,practiceCandidates,liveClays,wallWorld,{shooter:'local',shotId,weapon});shotEffect({id:'local',weapon,profile,origin,direction,laserEnd:beam.end,shotId});for(const result of beam.impacts)projectileImpact(result,{profile});}
+  return;
+ }
  if(weapon==='bow'){
   if(now-lastShot<WEAPONS.bow.reload)return;
   const {origin,direction}=captureAim(),profile=chargedArrow(bowChargeAt===null?0:(now-bowChargeAt)/BOW_CHARGE_MS),shotId=String(++shotSequence);
@@ -473,7 +486,7 @@ function sendInput(active=gameLoop.running){
 function syncActivity(allowRun=true){
  if(!renderReady)return;
  const active=hasJoined&&!joining&&allowRun!==false&&!document.hidden&&document.hasFocus()&&document.pointerLockElement===$('game');
- if(!active){bowMarker.visible=bowGuide.visible=false;nextBowPreview=0;autoFire.release();bowChargeAt=null;if(online&&weapon==='bow')post('charge',{active:false}).catch(actionError);}
+ if(!active){laserEffects.clear();bowMarker.visible=bowGuide.visible=false;nextBowPreview=0;autoFire.release();bowChargeAt=null;if(online&&weapon==='bow')post('charge',{active:false}).catch(actionError);}
  document.body.classList.toggle('playing',active);if(!active)shopPrompt.hidden=true;keys.clear();focusHeld=false;queuedFanClick=false;lastClick=-Infinity;
  clearInterval(inputTimer);clearInterval(idleTimer);inputTimer=idleTimer=null;
  if(active){
@@ -522,10 +535,11 @@ function frame(now){
  animateRevolver(gun,now,dt);
  animateShotgun(shotgunGun,weapon==='shotgun'?local.ammo:ammoByWeapon.shotgun,dt,weapon==='shotgun'&&reloadEnd?1-(reloadEnd-(online?skeetTime():now))/WEAPONS.shotgun.reload:-1,ejectShells);
  shotgunGun.userData.flash.children.forEach((flame,index)=>flame.visible=shotgunGun.userData.lastBarrel===2||index===shotgunGun.userData.lastBarrel);
+ const laserSelected=!!ammoProfile(weapon,local.mods).laser;
  const shotgunFlashDuration=shotgunGun.userData.lastBarrel===2?120:95,shotgunFlashPower=Math.max(0,1-(now-lastShot)/shotgunFlashDuration);
  shotgunGun.userData.flash.visible=weapon==='shotgun'&&lastShotWeapon==='shotgun'&&shotgunFlashPower>0;
  for(const material of shotgunGun.userData.flashMaterials)material.opacity=shotgunFlashPower**.55;
- flashLife=lastShotWeapon===weapon?Math.max(0,.065-(now-lastShot)/1000):0;flash.visible=gapFlash.visible=weapon==='revolver'&&flashLife>0;const flashPower=(flashLife/.065)**1.5;muzzleLight.intensity=weapon==='shotgun'&&lastShotWeapon===weapon?(shotgunGun.userData.lastBarrel===2?145:105)*shotgunFlashPower:weapon==='revolver'?32*flashPower:0;flashOuterMaterial.opacity=.9*flashPower;flashCoreMaterial.opacity=flashPower;barrelHeat*=Math.exp(-1.6*dt);
+ flashLife=lastShotWeapon===weapon?Math.max(0,.065-(now-lastShot)/1000):0;flash.visible=gapFlash.visible=weapon==='revolver'&&!laserSelected&&flashLife>0;const flashPower=(flashLife/.065)**1.5;muzzleLight.intensity=weapon==='shotgun'&&lastShotWeapon===weapon?(shotgunGun.userData.lastBarrel===2?145:105)*shotgunFlashPower:weapon==='revolver'&&!laserSelected?32*flashPower:0;flashOuterMaterial.opacity=.9*flashPower;flashCoreMaterial.opacity=flashPower;barrelHeat*=Math.exp(-1.6*dt);
  // Shots add exposure energy; the screen glow eases up and gently recovers.
  // Keep this separate from the short, physical muzzle flash.
  if(shotExposure.energy>0||shotExposure.visible>0){
@@ -550,7 +564,7 @@ function frame(now){
  if(pelletMesh.count)pelletMesh.instanceMatrix.needsUpdate=true;
  for(let i=remoteFlashes.length-1;i>=0;i--){const f=remoteFlashes[i];f.life-=dt;f.material.opacity=Math.max(0,f.life/.09);if(f.life<=0){f.mesh.removeFromParent();f.mesh.children[0].geometry.dispose();f.material.dispose();remoteFlashes.splice(i,1);}}
  for(let i=stuckArrows.length-1;i>=0;i--){const a=stuckArrows[i];a.life-=dt;a.age+=dt;wobbleStuckArrow(a.mesh,a.rest,a.age);if(a.life<=0||!a.mesh.parent||a.victim&&!a.victim.parent){a.mesh.removeFromParent();stuckArrows.splice(i,1);}}
- particles.update(dt);shellPhysics.update(dt);canEffects.update(dt);if(dummies.some(g=>g.userData.ragdoll))renderer.shadowMap.needsUpdate=true;
+ laserEffects.update(dt);particles.update(dt);shellPhysics.update(dt);canEffects.update(dt);if(dummies.some(g=>g.userData.ragdoll))renderer.shadowMap.needsUpdate=true;
  if(!online)for(const broken of skeetRange.update(now))skeetView.shatter(broken,now);
  if(locked&&mapId==='practice')pickUpShotgun();
  pickupGun.visible=!local.hasShotgun;wallView.update(dt);
@@ -560,10 +574,10 @@ function frame(now){
  if(!previewBow)bowMarker.visible=bowGuide.visible=false;
  else if(now>=nextBowPreview){const ray=captureAim();placeBowMarker(bowMarker,predictArrowImpact(ray,chargedArrow(charge),online?shotCandidates:practiceCandidates,liveClays,wallWorld,bowPath));placeBowGuide(bowGuide,bowPath,charge);nextBowPreview=now+1000/30;}
  const aimOpacity=weapon==='revolver'&&locked&&local.hp>0&&!reloadEnd?focusBlend:0;
- aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;
+ aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;aimMaterial.color.setHex(laserSelected?0xff3030:0xffdf9b);
  const liveAim=aimBeam.visible?captureAim():null;
  displayedAim=liveAim?(frozenAim&&now<frozenAim.until?frozenAim:liveAim):null;
- colorShift.uniforms.blast.value=weapon!=='bow'&&lastShotWeapon===weapon?(weapon==='shotgun'?(shotgunGun.userData.lastBarrel===2?2.2:1.7):1)*Math.exp(-Math.max(0,now-lastShot)/(weapon==='shotgun'?45:32)):0;
+ colorShift.uniforms.blast.value=!laserSelected&&weapon!=='bow'&&lastShotWeapon===weapon?(weapon==='shotgun'?(shotgunGun.userData.lastBarrel===2?2.2:1.7):1)*Math.exp(-Math.max(0,now-lastShot)/(weapon==='shotgun'?45:32)):0;
  if(colorShift.uniforms.blast.value>.001){const muzzle=liveAim?.origin??captureBarrelRay(gun).origin;muzzleLight.position.copy(muzzle);const muzzleUV=uvScratch.copy(muzzle).project(camera);colorShift.uniforms.muzzleUV.value.set(muzzleUV.x*.5+.5,muzzleUV.y*.5+.5);}
  colorShift.uniforms.heat.value=0;
  if(displayedAim){
@@ -572,7 +586,7 @@ function frame(now){
  const beamPositions=aimGeometry.attributes.position;beamPositions.setXYZ(0,beamOrigin.x,beamOrigin.y,beamOrigin.z);beamPositions.setXYZ(1,beamEnd.x,beamEnd.y,beamEnd.z);beamPositions.needsUpdate=true;
  const startUV=uvScratch.copy(beamOrigin).project(camera);colorShift.uniforms.aimStart.value.set(startUV.x*.5+.5,startUV.y*.5+.5);
  const endUV=uvScratch.copy(beamEnd).project(camera);colorShift.uniforms.aimEnd.value.set(endUV.x*.5+.5,endUV.y*.5+.5);
- colorShift.uniforms.heat.value=aimOpacity*(.25+barrelHeat*.75)*clamp(beamDirection.dot(camera.getWorldDirection(directionScratch))/.2,0,1);
+ colorShift.uniforms.heat.value=(laserSelected?0:aimOpacity)*(.25+barrelHeat*.75)*clamp(beamDirection.dot(camera.getWorldDirection(directionScratch))/.2,0,1);
  }
  colorShift.uniforms.time.value=t;
  if(weapon!=='bow'&&autoFire.ready(now,{active:locked&&gameLoop.running,unlocked:menu?.isAdmin(),powers:local.powers}))fire(false,now);

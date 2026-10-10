@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {arenaBlocks,duelSpawn,DUEL_BOUNDS} from '../arena.mjs';
+import {arenaBlocks,duelSpawn,DUEL_BOUNDS,DUEL_SCALE,DUEL_CELL} from '../arena.mjs';
 import {createVoxelWalls} from '../voxel-walls.mjs';
 import {move} from '../simulation.mjs';
 const near=(a,b,e=.005)=>assert.ok(Math.abs(a-b)<e,`${a} != ${b}`);
@@ -15,7 +15,7 @@ test('spawn cover hides the entire opponent from both eye positions',()=>{
   const a=duelSpawn(side),b=duelSpawn(1-side),eye={x:a.x,y:a.y+1.5,z:a.z};
   for(const y of [.1,.9,1.8,2.05])for(const z of [-.42,0,.42]){
    const d={x:b.x-eye.x,y:b.y+y-eye.y,z:b.z+z-eye.z},length=Math.hypot(d.x,d.y,d.z);for(const k of ['x','y','z'])d[k]/=length;
-   const hit=w.trace(eye,d,length);assert.ok(hit&&hit.distance<3,'Opponent exposed at spawn');
+   const hit=w.trace(eye,d,length);assert.ok(hit&&hit.distance<3*DUEL_SCALE,'Opponent exposed at spawn');
   }
  }
 });
@@ -67,7 +67,7 @@ test('swept movement cannot tunnel through a thin intact wall',()=>{
 test('both spawns can leave cover and descend into the central court',()=>{
  for(const index of [0,1])for(const hz of [20,60]){
   const w=createVoxelWalls('duel'),p=duelSpawn(index),side=index===0?-1:1;
-  for(const [x,z] of [[p.x,2.4],[side*9.6,2.4],[side*9.6,0],[side*6,0],[side*9.6,0],[side*9.6,2.4],[side*15.3,2.4],[side*15.3,0]]){
+  for(const [x,z] of [[side*15.3,2.4],[side*9.6,2.4],[side*9.6,0],[side*6,0],[side*9.6,0],[side*9.6,2.4],[side*15.3,2.4],[side*15.3,0]].map(([x,z])=>[x*DUEL_SCALE,z*DUEL_SCALE])){
    let reached=false;
    for(let i=0;i<hz*8;i++){
     const dx=x-p.x,dz=z-p.z;if(Math.hypot(dx,dz)<.12){reached=true;p.vx=p.vz=0;break;}
@@ -76,4 +76,10 @@ test('both spawns can leave cover and descend into the central court',()=>{
    assert.ok(reached,`Spawn ${index} stuck at ${p.x},${p.y},${p.z} heading to ${x},${z}`);
   }near(p.y,.6);
  }
+});
+
+test('arena footprint triples while voxel size and step heights stay unchanged',()=>{
+ near(DUEL_BOUNDS.x,50.4);near(DUEL_BOUNDS.z,25.2);near(duelSpawn(0).x,-45.9);
+ const blocks=arenaBlocks();assert.ok(blocks.every(b=>b.cell===.3));assert.equal(DUEL_CELL,.3);
+ const floor=blocks[0];near(floor.nx*floor.cell,100.8);near(floor.nz*floor.cell,50.4);near(floor.ny*floor.cell,.3);
 });

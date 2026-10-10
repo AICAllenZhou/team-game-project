@@ -17,6 +17,7 @@ export function applyAdminLoadout(player,loadout){
  if(loadout.hasShotgun)player.hasShotgun=true;if(loadout.hasBow){player.hasBow=true;player.ammoByWeapon.bow??=1;}
  for(const [weapon,mod] of Object.entries(loadout.mods||{})){
   if(!Object.hasOwn(AMMO_MODS,weapon)||!Object.hasOwn(AMMO_MODS[weapon],mod))continue;
+  if(AMMO_MODS[weapon][mod].adminOnly)player.adminAmmo=[...new Set([...(player.adminAmmo||[]),weapon+':'+mod])];
   player.mods={...player.mods,[weapon]:mod};
   player.ownedAmmo=[...new Set([...(player.ownedAmmo||[]),weapon+':'+mod])];
   player.ammoByWeapon={...player.ammoByWeapon,[weapon]:ammoProfile(weapon,player.mods).capacity};

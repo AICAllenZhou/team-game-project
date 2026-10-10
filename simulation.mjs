@@ -59,7 +59,7 @@ for(const side of [-1,1]){
 }
 for(const t of TRAINING_TARGETS)arenaBoxes.push({x:t.x,y:.525,z:t.z,w:.1,h:1.05,d:.1},{x:t.x,y:.04,z:t.z,w:.8,h:.08,d:.6});
 
-function boxHit(origin,direction,box){
+function boxHit(origin,direction,box,maxDistance=70){
  let near=-Infinity,far=Infinity,normal=null;
  for(const [axis,size] of [['x','w'],['y','h'],['z','d']]){
   const low=box[axis]-box[size]/2,high=box[axis]+box[size]/2,d=direction[axis];
@@ -68,14 +68,14 @@ function boxHit(origin,direction,box){
   if(entry>near){near=entry;normal={x:0,y:0,z:0};normal[axis]=d>0?-1:1;}
   far=Math.min(far,Math.max(a,b));if(near>far)return null;
  }
- return near>0&&near<=70?{distance:near,normal}:null;
+ return near>0&&near<=maxDistance?{distance:near,normal}:null;
 }
 
 // Shared by multiplayer and practice so bullets and markers stop at the same
 // actual surface, including the base plate, fences and target stands.
-export function traceShot(origin,direction,players=[],clays=[],walls=null){
- let distance=70,hit=null,targetId=null,clayId=null,surface=null,normal=null,headshot=false;
- for(const box of (walls?.mapId==='duel'?DUEL_SOLIDS:arenaBoxes)){const result=boxHit(origin,direction,box);if(result&&result.distance<distance){distance=result.distance;normal=result.normal;surface='world';}}
+export function traceShot(origin,direction,players=[],clays=[],walls=null,maxDistance=70){
+ let distance=maxDistance,hit=null,targetId=null,clayId=null,surface=null,normal=null,headshot=false;
+ for(const box of (walls?.mapId==='duel'?DUEL_SOLIDS:arenaBoxes)){const result=boxHit(origin,direction,box,maxDistance);if(result&&result.distance<distance){distance=result.distance;normal=result.normal;surface='world';}}
  for(const target of (walls?.mapId==='duel'?[]:TRAINING_TARGETS)){const d=targetHit(origin,direction,target);if(d<distance){distance=d;targetId=target.id;surface='target';normal={x:(origin.x+direction.x*d-target.x)/target.radius,y:(origin.y+direction.y*d-target.y)/target.radius,z:(origin.z+direction.z*d-target.z)/target.radius};}}
  for(const player of players){if(player.hp<=0)continue;const d=rayHit(origin,direction,player);if(d<distance){distance=d;hit=player.id;targetId=null;headshot=origin.y+direction.y*d-player.y>=1.38;surface='player';normal={x:-direction.x,y:-direction.y,z:-direction.z};}}
  for(const clay of clays){const d=clayHit(origin,direction,clay);if(d<distance){distance=d;hit=targetId=null;clayId=clay.id;surface='clay';normal={x:-direction.x,y:-direction.y,z:-direction.z};}}

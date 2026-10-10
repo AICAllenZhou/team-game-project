@@ -1,13 +1,15 @@
 // Mirrored end courts, protected spawns and a central courtyard from the reference.
 export const MAPS={practice:'Practice range',duel:'Dustyard · 1v1'};
-export const DUEL_BOUNDS={x:16.8,z:8.4};
+export const DUEL_SCALE=3;
+export const DUEL_CELL=.3;
+export const DUEL_BOUNDS={x:16.8*DUEL_SCALE,z:8.4*DUEL_SCALE};
 export const DUEL_SOLIDS=[{x:0,y:-4.25,z:0,w:34.6,h:.5,d:17.8},
  {x:-17.3,y:2,z:0,w:1,h:12,d:17.8},{x:17.3,y:2,z:0,w:1,h:12,d:17.8},
- {x:0,y:2,z:-8.9,w:34.6,h:12,d:1},{x:0,y:2,z:8.9,w:34.6,h:12,d:1}];
+ {x:0,y:2,z:-8.9,w:34.6,h:12,d:1},{x:0,y:2,z:8.9,w:34.6,h:12,d:1}].map(b=>({...b,x:b.x*DUEL_SCALE,z:b.z*DUEL_SCALE,w:b.w*DUEL_SCALE,d:b.d*DUEL_SCALE}));
 export function arenaBlocks(){
- const blocks=[],cell=.3;
+ const blocks=[],cell=DUEL_CELL;
  // Centre-based, cell-aligned boxes make both halves exact reflections.
- const block=(x,y,z,w,h,d,color=0xb09b79)=>blocks.push({x:x-w/2,y,z:z-d/2,nx:Math.round(w/cell),ny:Math.round(h/cell),nz:Math.round(d/cell),cell,color});
+ const block=(x,y,z,w,h,d,color=0xb09b79)=>blocks.push({x:(x-w/2)*DUEL_SCALE,y,z:(z-d/2)*DUEL_SCALE,nx:Math.round(w*DUEL_SCALE/cell),ny:Math.round(h/cell),nz:Math.round(d*DUEL_SCALE/cell),cell,color});
  block(0,-.3,0,33.6,.3,16.8,0xa78d68);
  for(const side of [-1,1]){
   // Chamfered end courts, with a broad two-step entrance into the courtyard.
@@ -35,4 +37,4 @@ export function arenaBlocks(){
  for(let i=-2;i<=2;i++)block(i*.3,0,i*.3,.6,Math.abs(i)===2?.6:.9,.6,0x699086);
  return blocks;
 }
-export function duelSpawn(index){return {x:index===0?-15.3:15.3,y:.6,z:0,yaw:index===0?-Math.PI/2:Math.PI/2,pitch:0,vy:0,vx:0,vz:0};}
+export function duelSpawn(index){return {x:(index===0?-15.3:15.3)*DUEL_SCALE,y:.6,z:0,yaw:index===0?-Math.PI/2:Math.PI/2,pitch:0,vy:0,vx:0,vz:0};}

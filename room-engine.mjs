@@ -4,9 +4,9 @@ import {applyDamage, setPowers} from './combat.mjs';
 import {createVoxelWalls} from './voxel-walls.mjs';
 import {move, firingMode, resolveBarrelShot} from './simulation.mjs';
 import {createSkeetRange, clayPose} from './skeet.mjs';
-import {AMMO_MODS, ammoProfile, canPickUpShotgun, WEAPONS, shotgunPellets, SHOTGUN_INTERVAL, shotgunDischarge} from './weapons.mjs';
+import {AMMO_MODS, ammoProfile, canUseAmmo, canPickUpShotgun, WEAPONS, shotgunPellets, SHOTGUN_INTERVAL, shotgunDischarge} from './weapons.mjs';
 import {createWallet, canShop, ownsAmmo, purchaseAmmo, awardBeans} from './shop.mjs';
-import {launchProjectile, advanceProjectile} from './projectile-physics.mjs';
+import {launchProjectile, advanceProjectile, traceLaser} from './projectile-physics.mjs';
 import {createTrainingCans, respawnTrainingCans} from './training-cans.mjs';
 import {applyAdminLoadout} from './admin-gameplay.mjs';
 
@@ -116,7 +116,28 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
       clays: range.flights.map(flight => ({...flight}))};
   }
 
+  function processImpact(bullet,result,time){
+        for (const change of result.wallChanges) emit('wallDamage', change);
+        if (result.clayId) {
+          const broken = range.breakClay(result.clayId, time, bullet.direction);
+          if (broken) emit('clayBreak', broken);
+        }
+        const victim = players.get(result.hit)||cans.find(can=>can.id===result.hit);
+        if (victim) {
+          const shooter=players.get(bullet.shooter);
+          result.killed=damagePlayer(victim,result.damage,shooter);
+          if(bullet.profile.arrow&&!result.killed&&!victim.powers?.infiniteHp){
+            const existing=bleeds.find(b=>b.target===victim.id);if(existing)Object.assign(existing,{left:3,next:time+400,shooter:bullet.shooter});
+            else bleeds.push({target:victim.id,shooter:bullet.shooter,left:3,next:time+400});
+          }
+        }
+        const earner = players.get(bullet.shooter);
+        if (earner) awardBeans(earner, result);
+        emit('impact', result);
+  }
+
   function fire(player, data, time) {
+    if(!canUseAmmo(player,player.weapon,player.mods[player.weapon]||'standard'))throw failure('This ammo is admin only.',403);
     if (mapId==='duel'&&phase!=='active')return;
     if (player.hp <= 0 || player.reloadUntil || player.ammo < WEAPONS[player.weapon].cost) return;
     const ready = player.weapon === 'bow'? time-player.lastShot>=WEAPONS.bow.reload : player.weapon === 'shotgun'
@@ -140,6 +161,12 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
     const shotId = typeof data.shotId === 'string' ? data.shotId.slice(0, 64) : '';
     const profile = player.weapon==='bow'?chargedArrow(player.chargeAt==null?0:(time-player.chargeAt)/BOW_CHARGE_MS):ammoProfile(player.weapon, player.mods);player.chargeAt=null;
     if(player.weapon==='bow'&&!player.powers.infiniteAmmo)player.reloadUntil=time+WEAPONS.bow.reload;
+    if(profile.laser){
+      const beam=traceLaser(ray,profile,[...players.values()].filter(p=>p.id!==player.id).concat(mapId==='duel'?[]:cans),range.flights.map(f=>clayPose(f,time)),walls,{shooter:player.id,shotId,weapon:player.weapon});
+      emit('shot',{id:player.id,weapon:player.weapon,profile:{...profile},origin,direction,laserEnd:beam.end,shotId});
+      for(const result of beam.impacts)processImpact({shooter:player.id,profile,direction},result,time);
+      return;
+    }
     const rays = player.weapon === 'shotgun'
       ? shotgunPellets(origin, direction, data.barrelRight, shotId, discharge.barrel, profile)
       : [{origin, direction}];
@@ -173,6 +200,7 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
       case 'loadout':
         if(mapId!=='duel'||!['intermission','waiting'].includes(phase))throw failure('Choose your loadout between rounds.',409);
         if(!['shotgun','bow'].includes(data.secondary)||!Object.hasOwn(AMMO_MODS.revolver,data.revolver)||!Object.hasOwn(AMMO_MODS.shotgun,data.shotgun||'standard'))throw failure('Invalid loadout');
+        if(!canUseAmmo(player,'revolver',data.revolver)||!canUseAmmo(player,'shotgun',data.shotgun||'standard'))throw failure('This ammo is admin only.',403);
         player.secondary=data.secondary;player.hasShotgun=data.secondary==='shotgun';player.hasBow=data.secondary==='bow';
         player.mods={revolver:data.revolver,shotgun:data.shotgun||'standard',bow:'standard'};
         player.weapon=data.equip==='revolver'?'revolver':data.secondary;
@@ -268,23 +296,7 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
       const clays = range.flights.map(flight => clayPose(flight, time));
       const targets = [...players.values()].filter(player => player.id !== bullet.shooter).concat(mapId==='duel'?[]:cans);
       for (const result of advanceProjectile(bullet, dt, targets, clays, walls)) {
-        for (const change of result.wallChanges) emit('wallDamage', change);
-        if (result.clayId) {
-          const broken = range.breakClay(result.clayId, time, bullet.direction);
-          if (broken) emit('clayBreak', broken);
-        }
-        const victim = players.get(result.hit)||cans.find(can=>can.id===result.hit);
-        if (victim) {
-          const shooter=players.get(bullet.shooter);
-          result.killed=damagePlayer(victim,result.damage,shooter);
-          if(bullet.profile.arrow&&!result.killed&&!victim.powers?.infiniteHp){
-            const existing=bleeds.find(b=>b.target===victim.id);if(existing)Object.assign(existing,{left:3,next:time+400,shooter:bullet.shooter});
-            else bleeds.push({target:victim.id,shooter:bullet.shooter,left:3,next:time+400});
-          }
-        }
-        const earner = players.get(bullet.shooter);
-        if (earner) awardBeans(earner, result);
-        emit('impact', result);
+        processImpact(bullet,result,time);
       }
       if (!bullet.alive) bullets.splice(index, 1);
     }

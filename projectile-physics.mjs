@@ -1,5 +1,28 @@
 import {traceShot,PROJECTILE_SPEED} from './simulation.mjs';
 
+// Laser ammo resolves its entire beam in the fire command, without waiting
+// for a projectile tick. Batch each wall's changed cells into one event.
+export function traceLaser(ray,profile,players=[],clays=[],walls=null,metadata={}){
+ const direction={...ray.direction},origin={...ray.origin},position={...origin},impacts=[],pierced=new Set(),wallHits=new Map();
+ let remaining=profile.range??180,end={...origin};
+ for(let i=0;i<2048&&remaining>1e-6;i++){
+  const hit=traceShot(position,direction,players.filter(p=>!pierced.has(p.id)),clays,walls,remaining);end={...hit.point};
+  if(!hit.surface)break;
+  const result={...hit,...metadata,origin,direction,laser:true,damage:hit.headshot?profile.headDamage:profile.damage,holeRadius:.18,wallChanges:[],stopped:false};
+  if(hit.surface==='voxel'){
+   const removed=walls.damage(hit,profile.chip??2,direction);
+   if(!removed.length)break;
+   if(wallHits.has(hit.wallId))wallHits.get(hit.wallId).wallChanges[0].removed.push(...removed);
+   else{result.penetrated=true;result.wallChanges.push({wallId:hit.wallId,removed});wallHits.set(hit.wallId,result);impacts.push(result);}
+  }else if(hit.hit){
+   result.exitPoint=canExitPoint(hit.point,direction,players.find(p=>p.id===hit.hit));result.penetrated=!!result.exitPoint;pierced.add(hit.hit);impacts.push(result);
+  }else{result.stopped=true;impacts.push(result);break;}
+  const step=Math.min(remaining,hit.distance+.00001);remaining-=step;
+  for(const axis of ['x','y','z'])position[axis]+=direction[axis]*step;
+ }
+ return {end,impacts};
+}
+
 export function launchProjectile(ray,profile,metadata={}){
  return {...metadata,position:{...ray.origin},origin:{...ray.origin},direction:{...ray.direction},profile:{...profile},speed:profile.speed??(metadata.weapon==='shotgun'?220:PROJECTILE_SPEED),remaining:profile.range??70,damageScale:1,penetration:profile.penetration,pierced:[],alive:true};
 }
