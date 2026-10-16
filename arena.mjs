@@ -1,40 +1,43 @@
-// Mirrored end courts, protected spawns and a central courtyard from the reference.
-export const MAPS={practice:'Practice range',duel:'Dustyard · 1v1'};
-export const DUEL_SCALE=3;
-export const DUEL_CELL=.3;
-export const DUEL_BOUNDS={x:16.8*DUEL_SCALE,z:8.4*DUEL_SCALE};
-export const DUEL_SOLIDS=[{x:0,y:-4.25,z:0,w:34.6,h:.5,d:17.8},
- {x:-17.3,y:2,z:0,w:1,h:12,d:17.8},{x:17.3,y:2,z:0,w:1,h:12,d:17.8},
- {x:0,y:2,z:-8.9,w:34.6,h:12,d:1},{x:0,y:2,z:8.9,w:34.6,h:12,d:1}].map(b=>({...b,x:b.x*DUEL_SCALE,z:b.z*DUEL_SCALE,w:b.w*DUEL_SCALE,d:b.d*DUEL_SCALE}));
+// Built from the orange/gray layout in CsGoat's 1v1 - Remastered screenshots.
+// Dimensions are world units: a player is 1.8 high and each damage cell is .15.
+export const MAPS={practice:'Practice range',duel:'Rampyard · 1v1'};
+export const DUEL_SCALE=1;
+export const DUEL_CELL=.15;
+export const DUEL_FLOOR=0;
+export const DUEL_BOUNDS={x:15.6,z:10.8};
+export const DUEL_SOLIDS=[
+ {x:0,y:-.3,z:0,w:32.4,h:.6,d:22.8,color:0xb7b8b6},
+ {x:-15.9,y:2.7,z:0,w:.6,h:5.4,d:22.8,color:0xcf7c31},{x:15.9,y:2.7,z:0,w:.6,h:5.4,d:22.8,color:0xcf7c31},
+ {x:0,y:2.7,z:-11.1,w:31.2,h:5.4,d:.6,color:0xcf7c31},{x:0,y:2.7,z:11.1,w:31.2,h:5.4,d:.6,color:0xcf7c31}
+];
 export function arenaBlocks(){
  const blocks=[],cell=DUEL_CELL;
- // Centre-based, cell-aligned boxes make both halves exact reflections.
- const block=(x,y,z,w,h,d,color=0xb09b79)=>blocks.push({x:(x-w/2)*DUEL_SCALE,y,z:(z-d/2)*DUEL_SCALE,nx:Math.round(w*DUEL_SCALE/cell),ny:Math.round(h/cell),nz:Math.round(d*DUEL_SCALE/cell),cell,color});
- block(0,-.3,0,33.6,.3,16.8,0xa78d68);
+ const block=(x,y,z,w,h,d,color=0xe08a36,profile=null)=>{
+  const b={x:x-w/2,y,z:z-d/2,nx:Math.round(w/cell),ny:Math.round(h/cell),nz:Math.round(d/cell),cell,color};
+  if(profile)b.profile=profile;blocks.push(b);return b;
+ };
+ // Alternating cover lines leave two equal flank routes and shield both spawns.
+ // The shallow clipped ends reproduce the reference's orange barrier silhouette.
+ const barrier=(x,z,length,height)=>{
+  const n=Math.round(length/cell),peak=Math.round(height/cell);
+  block(x,0,z,.45,height,length,0xe08a36,{axis:'z',heights:Array.from({length:n},(_,i)=>peak-Math.max(0,2-Math.min(i,n-1-i)))});
+ };
  for(const side of [-1,1]){
-  // Chamfered end courts, with a broad two-step entrance into the courtyard.
-  block(side*12.6,0,0,7.2,.6,10.8,0x909185);
-  for(const z of [-6,6])block(side*12.6,0,z,6,.6,1.2,0x909185);
-  for(const z of [-7.2,7.2])block(side*12.6,0,z,4.8,.6,1.2,0x909185);
-  block(side*8.7,0,0,.6,.6,3.6,0xb1ad99);
-  block(side*8.1,0,0,.6,.3,3.6,0xb1ad99);
-  // Full-height spawn cover: neither player sees the other before moving out.
-  // Its height is close to the 1.8-unit can, rather than a miniature crate.
-  block(side*12.3,.6,0,2.1,2.1,2.1,0xa58b65);
-  for(const z of [-3.9,3.9]){
-   block(side*10.2,.6,z,1.8,1.8,1.8,0xd0c5a6);
-   block(side*8.85,0,z,.3,2.4,1.8,0x82694f);
+  barrier(side*10.5,0,5.4,2.25);
+  for(const z of [-8.85,8.85])barrier(side*10.5,z,3.9,1.8);
+  for(const z of [-5.4,5.4])barrier(side*7.5,z,3.3,1.8);
+ }
+ // A broad double ramp replaces the old courtyard and wagon. Small independent
+ // chunks bound mesh rebuild cost; every filled ramp/lip cell remains breakable.
+ for(let section=0;section<6;section++){
+  const start=-5.4+section*1.8,x=start+.9,nx=12;
+  const heights=Array.from({length:nx},(_,i)=>{const column=section*nx+i;return Math.min(16,Math.ceil(Math.min(column+.5,71.5-column)*4/7));});
+  block(x,0,0,1.8,Math.max(...heights)*cell,6.6,0xa5a8a7,{axis:'x',heights});
+  for(const z of [-3.525,3.525]){
+   const lip=heights.map(h=>h+4);
+   block(x,0,z,1.8,Math.max(...lip)*cell,.45,0xc3c5c3,{axis:'x',heights:lip});
   }
-  for(const z of [-6.3,6.3])block(side*13.8,.6,z,1.8,1.8,1.8,0xbeb59d);
  }
- for(const z of [-3.6,3.6])block(0,0,z,15.6,1.8,.3,0xc4ab7c);
- for(const z of [-4.65,4.65]){
-  block(0,0,z,2.4,1.2,1.5,0xc8bfa6);
-  block(0,1.2,z,1.2,.6,1.2,0xb9af91);
- }
- for(const side of [-1,1])block(side*2.1,0,-side*1.5,1.2,1.2,1.2,0xc6b794);
- // Small diagonal wagon; opposite corners offer equivalent cover.
- for(let i=-2;i<=2;i++)block(i*.3,0,i*.3,.6,Math.abs(i)===2?.6:.9,.6,0x699086);
  return blocks;
 }
-export function duelSpawn(index){return {x:(index===0?-15.3:15.3)*DUEL_SCALE,y:.6,z:0,yaw:index===0?-Math.PI/2:Math.PI/2,pitch:0,vy:0,vx:0,vz:0};}
+export function duelSpawn(index){return {x:index===0?-13.5:13.5,y:DUEL_FLOOR,z:0,yaw:index===0?-Math.PI/2:Math.PI/2,pitch:0,vy:0,vx:0,vz:0};}

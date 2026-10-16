@@ -36,9 +36,12 @@ export function advanceProjectile(p,dt,players,clays,walls,{damageWalls=true}={}
  const shift=d=>{for(const a of ['x','y','z'])p.position[a]+=p.direction[a]*d;p.remaining-=d;travel-=d;};
  const slow=rate=>{p.speed*=rate;travel*=rate;if(velocity)for(const a of ['x','y','z'])velocity[a]*=rate;};
  for(let safety=0;p.alive&&travel>1e-7&&safety<32;safety++){
-  const hit=traceShot(p.position,p.direction,players.filter(target=>!p.pierced.includes(target.id)),clays,walls);
-  if(!hit.surface||hit.distance>travel){shift(travel);break;}
-  shift(Math.max(0,hit.distance));
+  // Only query the swept segment. Looking a full range ahead on every
+  // pellet wastes voxel traversal and cannot affect this tick's collisions.
+  const targets=p.pierced.length?players.filter(target=>!p.pierced.includes(target.id)):players;
+  const hit=traceShot(p.position,p.direction,targets,clays,walls,travel+1e-7);
+  if(!hit.surface||hit.distance>travel+1e-7){shift(travel);break;}
+  shift(Math.max(0,Math.min(travel,hit.distance)));
   const result={...hit,origin:{...p.origin},direction:{...p.direction},weapon:p.weapon,shotId:p.shotId,shooter:p.shooter,holeRadius:p.profile.canHoleRadius??(.012+.25*(p.profile.damage/100)**2),wallChanges:[],damage:hit.headshot&&p.profile.arrow?p.profile.headDamage:(hit.headshot?p.profile.headDamage:p.profile.damage)*p.damageScale,speed:p.speed,arrow:!!p.profile.arrow};
   if(p.profile.arrow){
    result.embedDepth=p.profile.embedDepth??.18;

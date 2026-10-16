@@ -12,6 +12,9 @@ import {applyAdminLoadout} from './admin-gameplay.mjs';
 
 export const ROOM_CAPACITY = 2;
 const COLORS = [0xc17a47, 0x658c91, 0x96799c, 0x879466];
+// Cosmetic impacts are sampled under admin burst fire; every pellet still
+// simulates, deals damage, earns beans and contributes its wall changes.
+export const IMPACTS_PER_WINDOW = 48;
 
 function failure(message, status = 400) {
   return Object.assign(new Error(message), {status});
@@ -35,9 +38,24 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
   const bullets = [];
   const cans = createTrainingCans();
   let mapId='practice',mapRevision=null,mapChangedAt=0,epoch=0,round=1,phase='waiting',until=0;
-  const scores=new Map(),bleeds=[];
+  const scores=new Map(),bleeds=[],wallDamage=new Map();
+  let impactWindow=-Infinity,impactCount=0;const impactSurfaces=new Map();
+  let tickClays=null;
+  function flushWallDamage(){
+    for(const [wallId,removed] of wallDamage)emit('wallDamage',{wallId,removed:[...removed]});
+    wallDamage.clear();
+  }
+  function emitImpact(result,time){
+    if(time-impactWindow>=50){impactWindow=time;impactCount=0;impactSurfaces.clear();}
+    const key=`${result.shooter}:${result.hit||(result.wallId??result.surface)}`,count=impactSurfaces.get(key)||0;
+    if(!result.killed&&!result.arrow&&(impactCount>=IMPACTS_PER_WINDOW||count>=8))return;
+    impactCount++;impactSurfaces.set(key,count+1);
+    // Destruction has a dedicated, complete wallDamage update. Sending those
+    // same cells in every decorative impact doubled reliable-channel traffic.
+    const {wallChanges,cell,...visual}=result;emit('impact',{...visual,wallChanges:[]});
+  }
   function resetPlayers(){
-    let index=0;epoch++;bullets.length=0;bleeds.length=0;walls.reset();range.flights.length=0;
+    let index=0;epoch++;bullets.length=0;bleeds.length=0;wallDamage.clear();impactSurfaces.clear();impactCount=0;walls.reset();range.flights.length=0;
     for(const player of players.values()){
       Object.assign(player,mapId==='duel'?duelSpawn(index++):spawn(),{hp:100,deadUntil:0,reloadUntil:0,lastShot:-Infinity,input:{},chargeAt:null,spawnSerial:epoch});
       for(const weapon of Object.keys(WEAPONS))player.ammoByWeapon[weapon]=ammoProfile(weapon,player.mods).capacity;
@@ -117,10 +135,13 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
   }
 
   function processImpact(bullet,result,time){
-        for (const change of result.wallChanges) emit('wallDamage', change);
+        for (const change of result.wallChanges){
+          let removed=wallDamage.get(change.wallId);if(!removed)wallDamage.set(change.wallId,removed=new Set());
+          for(const cell of change.removed)removed.add(cell);
+        }
         if (result.clayId) {
           const broken = range.breakClay(result.clayId, time, bullet.direction);
-          if (broken) emit('clayBreak', broken);
+          if (broken){emit('clayBreak', broken);if(tickClays){const i=tickClays.findIndex(clay=>clay.id===result.clayId);if(i>=0)tickClays.splice(i,1);}}
         }
         const victim = players.get(result.hit)||cans.find(can=>can.id===result.hit);
         if (victim) {
@@ -133,7 +154,7 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
         }
         const earner = players.get(bullet.shooter);
         if (earner) awardBeans(earner, result);
-        emit('impact', result);
+        emitImpact(result,time);
   }
 
   function fire(player, data, time) {
@@ -159,13 +180,15 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
 
     const {origin, direction} = ray;
     const shotId = typeof data.shotId === 'string' ? data.shotId.slice(0, 64) : '';
-    const profile = player.weapon==='bow'?chargedArrow(player.chargeAt==null?0:(time-player.chargeAt)/BOW_CHARGE_MS):ammoProfile(player.weapon, player.mods);player.chargeAt=null;
+    const measuredCharge=player.chargeAt==null?0:Math.max(0,Math.min(1,(time-player.chargeAt)/BOW_CHARGE_MS));
+    const displayedCharge=Number.isFinite(data.charge)?Math.max(0,Math.min(1,data.charge)):measuredCharge;
+    const profile = player.weapon==='bow'?chargedArrow(Math.min(measuredCharge,displayedCharge)):ammoProfile(player.weapon, player.mods);player.chargeAt=null;
     if(player.weapon==='bow'&&!player.powers.infiniteAmmo)player.reloadUntil=time+WEAPONS.bow.reload;
     if(profile.laser){
       const beam=traceLaser(ray,profile,[...players.values()].filter(p=>p.id!==player.id).concat(mapId==='duel'?[]:cans),range.flights.map(f=>clayPose(f,time)),walls,{shooter:player.id,shotId,weapon:player.weapon});
       emit('shot',{id:player.id,weapon:player.weapon,profile:{...profile},origin,direction,laserEnd:beam.end,shotId});
       for(const result of beam.impacts)processImpact({shooter:player.id,profile,direction},result,time);
-      return;
+      flushWallDamage();return;
     }
     const rays = player.weapon === 'shotgun'
       ? shotgunPellets(origin, direction, data.barrelRight, shotId, discharge.barrel, profile)
@@ -176,7 +199,7 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
         born: time, updatedAt: time}));
     }
     emit('shot', {id: player.id, weapon: player.weapon, bulletSize: profile.size, profile: {...profile},
-      origin, direction,barrel:discharge.barrel, ...(player.weapon === 'shotgun' ? {pellets: rays} : {}), fan, shotId});
+      origin, direction,barrel:discharge.barrel, ...(player.weapon === 'shotgun'&&data.barrelRight&&['x','y','z'].every(axis=>Number.isFinite(data.barrelRight[axis])) ? {barrelRight:{x:data.barrelRight.x,y:data.barrelRight.y,z:data.barrelRight.z}} : {}), fan, shotId});
   }
 
   function command(id, action, data = {}) {
@@ -211,7 +234,7 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
         break;
       case 'resetWalls':
         if(mapId==='duel')throw failure('Arena resets between rounds.',403);
-        walls.reset();
+        walls.reset();wallDamage.clear();
         emit('wallReset', {});
         break;
       case 'modify':
@@ -289,17 +312,23 @@ export function createRoomEngine({emit = () => {}, now = Date.now, random = Math
       if(!victim||victim.hp<=0){bleeds.splice(i,1);continue;}
       if(time>=bleed.next){const killed=damagePlayer(victim,5,players.get(bleed.shooter));if(killed&&players.get(bleed.shooter))awardBeans(players.get(bleed.shooter),{hit:victim.id,killed:true});bleed.left--;bleed.next+=400;emit('bleed',{id:victim.id,damage:5,killed});if(killed||!bleed.left){const pos=bleeds.indexOf(bleed);if(pos>=0)bleeds.splice(pos,1);}}
     }
+    // Reuse target lists across the whole batch, rather than allocating them
+    // for every one of the 80/160 pellets in every shotgun shot.
+    tickClays=range.flights.map(flight=>clayPose(flight,time));
+    const targetsByShooter=new Map();
+    for(const shooter of players.keys())targetsByShooter.set(shooter,[...players.values()].filter(player=>player.id!==shooter).concat(mapId==='duel'?[]:cans));
     for (let index = bullets.length - 1; index >= 0; index--) {
-      const bullet = bullets[index];if(!bullet.alive){bullets.splice(index,1);continue;}
+      const bullet = bullets[index];if(!bullet.alive)continue;
       const dt = Math.max(0, Math.min(.1, (time - bullet.updatedAt) / 1000));
       bullet.updatedAt = time;
-      const clays = range.flights.map(flight => clayPose(flight, time));
-      const targets = [...players.values()].filter(player => player.id !== bullet.shooter).concat(mapId==='duel'?[]:cans);
-      for (const result of advanceProjectile(bullet, dt, targets, clays, walls)) {
-        processImpact(bullet,result,time);
-      }
-      if (!bullet.alive) bullets.splice(index, 1);
+      let targets=targetsByShooter.get(bullet.shooter);
+      if(!targets){targets=[...players.values()].filter(player=>player.id!==bullet.shooter).concat(mapId==='duel'?[]:cans);targetsByShooter.set(bullet.shooter,targets);}
+      for (const result of advanceProjectile(bullet, dt, targets, tickClays, walls))processImpact(bullet,result,time);
     }
+    tickClays=null;
+    // Compact once: splice-per-pellet repeatedly shifted the entire live list.
+    let alive=0;for(const bullet of bullets)if(bullet.alive)bullets[alive++]=bullet;bullets.length=alive;
+    flushWallDamage();
     const state = snapshot();
     emit('state', state);
     return state;

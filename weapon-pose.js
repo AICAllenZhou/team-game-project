@@ -52,3 +52,10 @@ export function captureBarrelRay(gun){
  const direction=gun.position.clone().set(0,0,-1).transformDirection(muzzle.matrixWorld);
  return {origin,direction};
 }
+
+// Preserve the world-space ray that was actually drawn. Reanchoring a muzzle
+// offset to a delayed network player position shifts every bullet sideways.
+export function makeShotPayload(ray,eye,extra={}){
+ const {origin,direction}=ray;
+ return {...extra,renderedEye:{x:eye.x,y:eye.y,z:eye.z},muzzleOffset:{x:origin.x-eye.x,y:origin.y-eye.y,z:origin.z-eye.z},direction:{x:direction.x,y:direction.y,z:direction.z},gunYaw:Math.atan2(-direction.x,-direction.z),gunPitch:Math.asin(Math.max(-1,Math.min(1,direction.y)))};
+}

@@ -35,15 +35,19 @@ function wallMaterial(w){
  return new THREE.MeshStandardMaterial({color:w.color,roughness:1,flatShading:true,vertexColors:true,map:voxelGrid||null});
 }
 export function createVoxelWallView(scene,world){
- let meshes=world.walls.map(w=>{const mesh=new THREE.Mesh(wallSurface(w),wallMaterial(w));mesh.receiveShadow=true;mesh.userData.version=w.version;scene.add(mesh);return mesh;});
+ let meshes=world.walls.map(w=>{const mesh=new THREE.Mesh(wallSurface(w),wallMaterial(w));mesh.receiveShadow=true;mesh.castShadow=true;mesh.userData.version=w.version;scene.add(mesh);return mesh;});
  const debris=new THREE.InstancedMesh(new THREE.BoxGeometry(.065,.065,.065),new THREE.MeshStandardMaterial({roughness:1}),96);debris.frustumCulled=false;debris.count=0;debris.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(debris);
- const chips=Array.from({length:96},()=>({life:0})),dummy=new THREE.Object3D(),color=new THREE.Color();let last=-1,cursor=0;
- function burst(wall,removed){const w=world.walls[wall];if(!w)return;for(const i of removed){const p=chips[cursor++%chips.length],x=i%w.nx,z=Math.floor(i/w.nx)%w.nz,y=Math.floor(i/(w.nx*w.nz));Object.assign(p,{life:2,x:w.x+(x+.5)*w.cell,y:w.y+(y+.5)*w.cell,z:w.z+(z+.5)*w.cell,vx:(Math.random()-.5)*3,vy:1+Math.random()*2,vz:(Math.random()-.5)*3,angle:Math.random()*6,color:w.color});}}
+ const chips=Array.from({length:96},()=>({life:0})),dummy=new THREE.Object3D(),color=new THREE.Color();let last=-1,cursor=0;const pending=new Set();
+ function burst(wall,removed){const w=world.walls[wall];if(!w)return;for(let n=0,count=Math.min(32,removed.length);n<count;n++){const i=removed[Math.floor(n*removed.length/count)],p=chips[cursor++%chips.length],x=i%w.nx,z=Math.floor(i/w.nx)%w.nz,y=Math.floor(i/(w.nx*w.nz));Object.assign(p,{life:2,x:w.x+(x+.5)*w.cell,y:w.y+(y+.5)*w.cell,z:w.z+(z+.5)*w.cell,vx:(Math.random()-.5)*3,vy:1+Math.random()*2,vz:(Math.random()-.5)*3,angle:Math.random()*6,color:w.color});}}
  let layout=world.walls;
  function update(dt){
-  if(layout!==world.walls){for(const m of meshes){scene.remove(m);m.geometry.dispose();m.material.dispose();}layout=world.walls;meshes=world.walls.map(w=>{const m=new THREE.Mesh(wallSurface(w),wallMaterial(w));m.receiveShadow=true;m.userData.version=w.version;scene.add(m);return m;});for(const p of chips)p.life=0;}
+  if(layout!==world.walls){for(const m of meshes){scene.remove(m);m.geometry.dispose();m.material.dispose();}layout=world.walls;pending.clear();meshes=world.walls.map(w=>{const m=new THREE.Mesh(wallSurface(w),wallMaterial(w));m.receiveShadow=true;m.castShadow=true;m.userData.version=w.version;scene.add(m);return m;});for(const p of chips)p.life=0;}
 
-  if(last!==world.revision){last=world.revision;world.walls.forEach((w,k)=>{const m=meshes[k];if(m.userData.version===w.version)return;const previous=m.geometry;m.geometry=wallSurface(w);m.userData.version=w.version;previous.dispose();});}
+  if(last!==world.revision){last=world.revision;world.walls.forEach((w,k)=>{if(meshes[k].userData.version!==w.version)pending.add(k);});}
+  // The collision grid changes immediately. Merge a bounded number of dirty
+  // visual chunks per frame so a large birdshot burst cannot freeze a client.
+  const start=performance.now();let rebuilt=0;
+  for(const k of pending){const w=world.walls[k],m=meshes[k];pending.delete(k);const previous=m.geometry;m.geometry=wallSurface(w);m.userData.version=w.version;previous.dispose();if(++rebuilt>=3||performance.now()-start>=3)break;}
   debris.count=0;for(const p of chips){if(p.life<=0)continue;p.life-=dt;if(p.life<=0)continue;p.vy-=9.81*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.z+=p.vz*dt;if(p.y<.04){p.y=.04;p.vy=Math.abs(p.vy)*.22;p.vx*=.8;p.vz*=.8;}else p.angle+=dt*8;dummy.position.set(p.x,p.y,p.z);dummy.rotation.set(p.angle,p.angle*.7,0);dummy.scale.setScalar(Math.min(1,p.life*3));dummy.updateMatrix();debris.setMatrixAt(debris.count,dummy.matrix);debris.setColorAt(debris.count++,color.setHex(p.color));}if(debris.count){debris.instanceMatrix.needsUpdate=true;debris.instanceColor.needsUpdate=true;}
  }update(0);return {update,burst};
 }

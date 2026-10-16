@@ -1,9 +1,13 @@
-import {arenaBlocks} from './arena.mjs';
+import {arenaBlocks,DUEL_FLOOR} from './arena.mjs';
 export const CELL=.14;
 export const WALLS=[{x:15,y:0,z:-6,nx:4,ny:22,nz:30,color:0xa9764d},{x:20,y:0,z:2,nx:4,ny:18,nz:26,color:0xb0a38c},{x:15,y:0,z:10,nx:3,ny:20,nz:24,color:0x91634a}];
 export function createVoxelWalls(mapId='practice'){
  let walls=[],revision=0;
- function setMap(id){mapId=id;walls=(id==='duel'?arenaBlocks():WALLS).map(w=>({...w,cell:w.cell||CELL,version:++revision,cells:new Uint8Array(w.nx*w.ny*w.nz).fill(1)}));}
+ function setMap(id){mapId=id;walls=(id==='duel'?arenaBlocks():WALLS).map(spec=>{
+  const w={...spec,cell:spec.cell||CELL,version:++revision,cells:new Uint8Array(spec.nx*spec.ny*spec.nz).fill(1)};
+  if(w.profile){for(let y=0;y<w.ny;y++)for(let z=0;z<w.nz;z++)for(let x=0;x<w.nx;x++)if(y>=w.profile.heights[w.profile.axis==='x'?x:z])w.cells[(y*w.nz+z)*w.nx+x]=0;w.initialCells=w.cells.slice();}
+  return w;
+ });}
  setMap(mapId);revision=0;for(const w of walls)w.version=0;
  const index=(w,x,y,z)=>(y*w.nz+z)*w.nx+x;
  function trace(o,d,max=70){
@@ -30,7 +34,7 @@ export function createVoxelWalls(mapId='practice'){
   }if(removed.length){revision++;w.version++;}return removed;
  }
  function apply(wall,removed){const w=walls[wall];if(!w)return;let changed=false;for(const i of removed)if(i>=0&&i<w.cells.length&&w.cells[i]){w.cells[i]=0;changed=true;}if(changed){revision++;w.version++;}}
- function snapshot(){return walls.map(w=>Array.from(w.cells.keys()).filter(i=>!w.cells[i]));}
+ function snapshot(){return walls.map(w=>Array.from(w.cells.keys()).filter(i=>!w.cells[i]&&(!w.initialCells||w.initialCells[i])));}
  // A rounded footprint avoids catching on voxel corners. Visit only nearby
  // columns, sharing the same controller between prediction and the room host.
  const radius=.28,height=1.8,stepHeight=.38,skin=.001;
@@ -52,7 +56,7 @@ export function createVoxelWalls(mapId='practice'){
   });return top;
  }
  function supportAt(x,z,ceiling){
-  let top=mapId==='duel'?-4:0;
+  let top=mapId==='duel'?DUEL_FLOOR:0;
   columns(x,z,(w,cx,cz)=>{
    for(let cy=Math.min(w.ny-1,Math.floor((ceiling+skin-w.y)/w.cell)-1);cy>=0;cy--){
     if(w.cells[index(w,cx,cy,cz)]){top=Math.max(top,w.y+(cy+1)*w.cell);break;}
@@ -100,11 +104,11 @@ export function createVoxelWalls(mapId='practice'){
   if(p.grounded){p.y=support;p.vy=0;}
  }
  function floorAt(x,z,ceiling=10){
-  let top=mapId==='duel'?-4:0;
+  let top=mapId==='duel'?DUEL_FLOOR:0;
   for(const w of walls){const cx=Math.floor((x-w.x)/w.cell),cz=Math.floor((z-w.z)/w.cell);if(cx<0||cx>=w.nx||cz<0||cz>=w.nz)continue;
    for(let y=w.ny-1;y>=0;y--){const surface=w.y+(y+1)*w.cell;if(surface<=ceiling&&w.cells[index(w,cx,y,cz)]){top=Math.max(top,surface);break;}}
   }return top;
  }
- function reset(){for(const w of walls){w.cells.fill(1);w.version++;}revision++;}
+ function reset(){for(const w of walls){if(w.initialCells)w.cells.set(w.initialCells);else w.cells.fill(1);w.version++;}revision++;}
  return {get walls(){return walls;},get mapId(){return mapId;},setMap,trace,damage,apply,snapshot,collide,reset,floorAt,get revision(){return revision;}};
 }

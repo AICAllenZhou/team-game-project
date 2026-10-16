@@ -1,3 +1,4 @@
+import {sendServerEvent as send} from './server-stream.mjs';
 import {chargedArrow,BOW_CHARGE_MS} from './weapons.mjs';
 import {adminLoadout,applyAdminLoadout} from './admin-gameplay.mjs';
 import {createTrainingCans,respawnTrainingCans} from './training-cans.mjs';
@@ -23,15 +24,22 @@ const codeAlphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 function playerCode(){let code;do{code=Array.from({length:6},()=>codeAlphabet[randomInt(codeAlphabet.length)]).join('');}while([...sessions.values()].some(p=>p.joinCode===code));return code;}
 function live(p){return p&&Date.now()-p.lastSeen<15000;}
 const spawn=()=>{let x,z;do{x=(Math.random()-.5)*36;z=(Math.random()-.5)*36;}while(x>-17&&x<-9&&z>0&&z<7);return {x,z,y:0,vy:0,vx:0,vz:0};};
-const send=(res,event,data)=>res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 function publicPlayer(p){const {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun,hasBow,chargeAt,mods,powers,beans,ownedAmmo}=p;return {id,name,x,y,z,yaw,pitch,gunYaw,gunPitch,hp,ammo,weapon,kills,deaths,reloadUntil,deadUntil,color,hasShotgun,hasBow,chargeAt,mods,powers,beans,ownedAmmo,ammoByWeapon:{...p.ammoByWeapon}};}
 function broadcast(room,event,data){for(const p of room.values())if(p.stream)send(p.stream,event,data);}
+const roomEffects=new WeakMap();
+function effects(room){let batch=roomEffects.get(room);if(!batch){batch={walls:new Map(),window:-Infinity,count:0,surfaces:new Map(),clays:null};roomEffects.set(room,batch);}return batch;}
+function flushWalls(room){const batch=effects(room);for(const [wallId,removed] of batch.walls)broadcast(room,'wallDamage',{wallId,removed:[...removed]});batch.walls.clear();}
 function processImpact(room,range,cans,bullet,result,now){
-   for(const change of result.wallChanges)broadcast(room,'wallDamage',change);
-   if(result.clayId){const broken=range.breakClay(result.clayId,now,bullet.direction);if(broken)broadcast(room,'clayBreak',broken);}
+   const batch=effects(room);
+   for(const change of result.wallChanges){let removed=batch.walls.get(change.wallId);if(!removed)batch.walls.set(change.wallId,removed=new Set());for(const cell of change.removed)removed.add(cell);}
+   if(result.clayId){const broken=range.breakClay(result.clayId,now,bullet.direction);if(broken){broadcast(room,'clayBreak',broken);if(batch.clays){const index=batch.clays.findIndex(clay=>clay.id===result.clayId);if(index>=0)batch.clays.splice(index,1);}}}
    const victim=room.get(result.hit)||cans.find(can=>can.id===result.hit);if(victim){const killed=applyDamage(victim,result.damage,now);const shooter=room.get(bullet.shooter);if(killed&&shooter)shooter.kills++;result.killed=killed;if(bullet.profile.arrow&&!killed&&!victim.powers?.infiniteHp)bleeds.push({room:bullet.room,target:victim.id,shooter:bullet.shooter,left:3,next:now+400});}
    const earner=room.get(bullet.shooter);if(earner)awardBeans(earner,result);
-   broadcast(room,'impact',result);
+   if(now-batch.window>=50){batch.window=now;batch.count=0;batch.surfaces.clear();}
+   const key=`${bullet.shooter}:${result.hit||(result.wallId??result.surface)}`,count=batch.surfaces.get(key)||0;
+   if(!result.killed&&!result.arrow&&(batch.count>=48||count>=8))return;
+   batch.count++;batch.surfaces.set(key,count+1);
+   const {wallChanges,cell,...visual}=result;broadcast(room,'impact',{...visual,wallChanges:[]});
 }
 function remove(p,keepRoom=false){p.stream?.end();sessions.delete(p.token);const room=rooms.get(p.room);room?.delete(p.id);if(!room?.size&&!keepRoom){rooms.delete(p.room);skeetRanges.delete(p.room);wallWorlds.delete(p.room);roomCans.delete(p.room);}}
 const server=http.createServer(async(req,res)=>{
@@ -110,7 +118,7 @@ const server=http.createServer(async(req,res)=>{
   else if(url.pathname==='/api/charge'){if(p.weapon==='bow'&&p.hp>0&&!p.reloadUntil)p.chargeAt=data.active===true?(p.chargeAt??now):null;}
   else if(url.pathname==='/api/ackCookieReset'){if(data.id===p.cookieReset)p.cookieResetAck=data.id;}
   else if(url.pathname==='/api/leave'){remove(p);res.writeHead(204).end();return;}
-  else if(url.pathname==='/api/resetWalls'){wallWorlds.get(p.room).reset();broadcast(room,'wallReset',{});}
+  else if(url.pathname==='/api/resetWalls'){wallWorlds.get(p.room).reset();effects(room).walls.clear();broadcast(room,'wallReset',{});}
   else if(url.pathname==='/api/buy'){
    const result=purchaseAmmo(p,data.weapon,data.mod,data.yaw,data.pitch);
    if(!result.ok){res.writeHead(403).end(result.message);return;}
@@ -135,17 +143,19 @@ const server=http.createServer(async(req,res)=>{
    p.lastShot=now;if(!p.powers.infiniteAmmo)p.ammo-=discharge.cost;p.ammoByWeapon[p.weapon]=p.ammo;const {origin,direction}=ray;
    const range=skeetRanges.get(p.room),clays=range.flights.map(f=>clayPose(f,now)).filter(c=>c.y>0);
    const shotId=typeof data.shotId==='string'?data.shotId.slice(0,64):'',players=[...room.values()].filter(other=>other!==p);
-   const profile=p.weapon==='bow'?chargedArrow(p.chargeAt==null?0:(now-p.chargeAt)/BOW_CHARGE_MS):ammoProfile(p.weapon,p.mods);p.chargeAt=null;
+   const measuredCharge=p.chargeAt==null?0:(now-p.chargeAt)/BOW_CHARGE_MS;
+    const profile=p.weapon==='bow'?chargedArrow(Math.min(measuredCharge,Number.isFinite(data.charge)?Math.max(0,Math.min(1,data.charge)):measuredCharge)):ammoProfile(p.weapon,p.mods);p.chargeAt=null;
    if(p.weapon==='bow'&&!p.powers.infiniteAmmo)p.reloadUntil=now+WEAPONS.bow.reload;
    if(profile.laser){
     const cans=roomCans.get(p.room)||[],beam=traceLaser(ray,profile,players.concat(cans),clays,wallWorlds.get(p.room),{room:p.room,shooter:p.id,weapon:p.weapon,shotId});
     broadcast(room,'shot',{id:p.id,weapon:p.weapon,profile,origin,direction,laserEnd:beam.end,shotId});
     for(const result of beam.impacts)processImpact(room,range,cans,{room:p.room,shooter:p.id,profile,direction},result,now);
+    flushWalls(room);
     res.writeHead(204).end();return;
    }
    const rays=p.weapon==='shotgun'?shotgunPellets(origin,direction,data.barrelRight,shotId,discharge.barrel,profile):[{origin,direction}];
    for(let i=0;i<rays.length;i++)bullets.push(launchProjectile(rays[i],profile,{room:p.room,shooter:p.id,weapon:p.weapon,shotId:p.weapon==='shotgun'?`${shotId}/${i}`:shotId,born:now,updatedAt:now}));
-   broadcast(room,'shot',{id:p.id,weapon:p.weapon,bulletSize:profile.size,profile,origin,direction,...(p.weapon==='shotgun'?{pellets:rays}:{}),fan,shotId});
+   broadcast(room,'shot',{id:p.id,weapon:p.weapon,bulletSize:profile.size,profile,origin,direction,barrel:discharge.barrel,...(p.weapon==='shotgun'&&data.barrelRight&&['x','y','z'].every(axis=>Number.isFinite(data.barrelRight[axis]))?{barrelRight:{x:data.barrelRight.x,y:data.barrelRight.y,z:data.barrelRight.z}}:{}),fan,shotId});
   }
   res.writeHead(204).end();return;
  }
@@ -161,7 +171,7 @@ const server=http.createServer(async(req,res)=>{
  res.setHeader('Content-Type',file.endsWith('.html')?'text/html':file.endsWith('.css')?'text/css':file.endsWith('.wav')?'audio/wav':'text/javascript');res.end(await readFile(fileURLToPath(new URL(file,import.meta.url))));
  }catch(e){console.error(e.message);if(!res.headersSent)res.writeHead(500);res.end();}
 });
-setInterval(()=>{const now=Date.now();for(let i=bullets.length-1;i>=0;i--)if(!rooms.has(bullets[i].room))bullets.splice(i,1);for(const [key,expires] of adminSessions)if(expires<=now)adminSessions.delete(key);for(const [key,attempt] of loginAttempts)if(attempt.until<=now)loginAttempts.delete(key);for(const [key,room] of rooms){
+setInterval(()=>{const now=Date.now();for(const [key,expires] of adminSessions)if(expires<=now)adminSessions.delete(key);for(const [key,attempt] of loginAttempts)if(attempt.until<=now)loginAttempts.delete(key);for(const [key,room] of rooms){
  const cans=roomCans.get(key)||[];respawnTrainingCans(cans,now);
  const range=skeetRanges.get(key);for(const broken of range.update(now))broadcast(room,'clayBreak',broken);
  for(const p of room.values()){
@@ -172,14 +182,15 @@ setInterval(()=>{const now=Date.now();for(let i=bullets.length-1;i>=0;i--)if(!ro
  if(p.hp>0){const old={x:p.x,y:p.y,z:p.z};move(p,p.input,.05);wallWorlds.get(key).collide(p,old);}
  }
  for(let i=bleeds.length-1;i>=0;i--){const b=bleeds[i];if(b.room!==key)continue;const victim=room.get(b.target)||cans.find(c=>c.id===b.target);if(!victim||victim.hp<=0){bleeds.splice(i,1);continue;}if(now>=b.next){const killed=applyDamage(victim,5,now);if(killed&&room.get(b.shooter))room.get(b.shooter).kills++;b.left--;b.next+=400;broadcast(room,'bleed',{id:victim.id,damage:5,killed});if(killed||!b.left)bleeds.splice(i,1);}}
- for(let i=bullets.length-1;i>=0;i--){const bullet=bullets[i];if(bullet.room!==key)continue;const dt=Math.min(.1,(now-bullet.updatedAt)/1000);bullet.updatedAt=now;
-  const clays=range.flights.map(f=>clayPose(f,now));
-  for(const result of advanceProjectile(bullet,dt,[...room.values()].filter(p=>p.id!==bullet.shooter).concat(cans),clays,wallWorlds.get(key))){
-   processImpact(room,range,cans,bullet,result,now);
-  }
-  if(!bullet.alive)bullets.splice(i,1);
- }broadcast(room,'state',{time:now,players:[...room.values()].map(publicPlayer),cans,clays:range.flights});
-}},50);
+ const batch=effects(room);batch.clays=range.flights.map(f=>clayPose(f,now));const targets=new Map();
+ for(let i=bullets.length-1;i>=0;i--){const bullet=bullets[i];if(bullet.room!==key||!bullet.alive)continue;const dt=Math.max(0,Math.min(.1,(now-bullet.updatedAt)/1000));bullet.updatedAt=now;
+  if(!targets.has(bullet.shooter))targets.set(bullet.shooter,[...room.values()].filter(p=>p.id!==bullet.shooter).concat(cans));
+  for(const result of advanceProjectile(bullet,dt,targets.get(bullet.shooter),batch.clays,wallWorlds.get(key)))processImpact(room,range,cans,bullet,result,now);
+ }
+ batch.clays=null;flushWalls(room);broadcast(room,'state',{time:now,players:[...room.values()].map(publicPlayer),cans,clays:range.flights});
+ }
+ let alive=0;for(const bullet of bullets)if(bullet.alive&&rooms.has(bullet.room))bullets[alive++]=bullet;bullets.length=alive;
+},50);
 server.listen(Number(process.env.PORT)||3000,'0.0.0.0',()=>{
  const port=server.address().port;console.log(`DUSTLINE ready at http://localhost:${port}`);
  try{for(const entries of Object.values(networkInterfaces()))for(const entry of entries||[])if(entry.family==='IPv4'&&!entry.internal)console.log(`Same-Wi-Fi join address: http://${entry.address}:${port}`);}

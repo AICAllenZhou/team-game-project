@@ -1,4 +1,4 @@
-import {duelSpawn,DUEL_SCALE} from './arena.mjs';
+import {duelSpawn} from './arena.mjs';
 import {probePeerConnection} from './peer-connection.mjs';
 import {createLanClient,directory} from './lan-client.js';
 
@@ -49,10 +49,11 @@ $('leave-connection').addEventListener('click',()=>leaveManual());
 
 function checkpoint(label){const item=document.createElement('li');item.textContent=label;item.dataset.done='true';$('check-results').append(item);}
 function assert(condition,message){if(!condition)throw Error(message);}
-async function waitUntil(condition,checkFailure,timeout=5000){
+async function waitUntil(condition,checkFailure,timeout=5000,heartbeat=null){
  const deadline=Date.now()+timeout;
  while(!condition()){
   checkFailure();if(Date.now()>deadline)throw Error('The connected player did not receive a game update.');
+  if(heartbeat)await heartbeat();
   await new Promise(resolve=>setTimeout(resolve,40));
  }
  checkFailure();
@@ -103,17 +104,34 @@ $('automatic-form').addEventListener('submit',async event=>{
    await host.command('loadout',{secondary:'bow',revolver:'heavy',equip:'revolver'});
    await guest.command('loadout',{secondary:'bow',revolver:'small'});
    await waitUntil(()=>guest.session()?.initialState?.duel?.phase==='active',checkFailure);
-   // Spawn cover deliberately blocks the opening sightline. Walk into the lane.
-   await Promise.all([host.command('input',{active:true,x:0,z:1,yaw:0}),guest.command('input',{active:true,x:0,z:1,yaw:0})]);
-   await waitUntil(()=>guest.session()?.initialState?.players.every(p=>p.z>=2.1*DUEL_SCALE),checkFailure);
-   await Promise.all([host.command('input',{active:true,x:1,z:0,yaw:0}),guest.command('input',{active:true,x:-1,z:0,yaw:0})]);
-   await waitUntil(()=>guest.session()?.initialState?.players.every(p=>Math.abs(p.x)<20),checkFailure,15000);
+   // Walk around the staggered cover rather than shooting through spawn walls.
+   // Steer each peer from its authoritative position so latency cannot make the
+   // faster peer overshoot a waypoint into the central ramp or the next barrier.
+   const positions=()=>guest.session()?.initialState?.players||[];
+   const walkTo=async(x,z)=>{
+    const heartbeat=()=>Promise.all([[host,first.id,-1],[guest,second.id,1]].map(([client,id,side])=>{
+     const p=positions().find(p=>p.id===id);if(!p)return Promise.resolve();
+     const dx=side*x-p.x,dz=z-p.z,distance=Math.hypot(dx,dz),scale=Math.max(1.2,distance);
+     return client.command('input',{active:distance>.08,yaw:0,x:dx/scale,z:dz/scale});
+    }));
+    await heartbeat();await waitUntil(()=>positions().length===2&&positions().every(p=>Math.hypot((p.id===first.id?-x:x)-p.x,z-p.z)<.18),checkFailure,15000,heartbeat);
+   };
+   status('automatic-status','Walking both players around the spawn cover…');
+   await walkTo(Math.abs(duelSpawn(0).x),3.3);
+   await walkTo(6.3,3.3);
+   await walkTo(6.3,5.4);
    await Promise.all([host.command('input',{active:false}),guest.command('input',{active:false})]);
    const stoppedAt=guest.session().initialState.time;
    await waitUntil(()=>guest.session()?.initialState?.time>=stoppedAt+600,checkFailure);
-   const shot={muzzleOffset:{x:1,y:-.5,z:0},direction:{x:1,y:0,z:0}};
+   const shooter=positions().find(p=>p.id===first.id),target=positions().find(p=>p.id===second.id);
+   const direction={x:target.x-(shooter.x+1),y:target.y-shooter.y,z:target.z-shooter.z},length=Math.hypot(direction.x,direction.y,direction.z);
+   for(const axis of ['x','y','z'])direction[axis]/=length;
+   const shot={muzzleOffset:{x:1,y:-.5,z:0},direction};
+   status('automatic-status','Testing two hits in the clear flank lane…');
+   const firedAt=guest.session().initialState.time;
    await host.command('fire',{...shot,shotId:'check-heavy-1'});
    await waitUntil(()=>guest.session()?.initialState?.players.find(p=>p.id===second.id)?.hp===25,checkFailure);
+   await waitUntil(()=>guest.session()?.initialState?.time>=firedAt+350,checkFailure);
    await host.command('fire',{...shot,shotId:'check-heavy-2'});
    await waitUntil(()=>guest.session()?.initialState?.duel?.phase==='death',checkFailure);
    assert(guest.session().initialState.duel.scores[first.id]===1,'The round score did not synchronize.');

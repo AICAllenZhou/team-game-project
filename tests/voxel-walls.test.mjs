@@ -27,3 +27,17 @@ test('wall rendering omits hidden faces and rebuild versions change only for dam
  const version=w.walls[1].version;w.damage(w.trace(origin,direction));assert.equal(w.walls[1].version,version);assert.equal(a.version,1);
  const cut=wallSurface(a);assert.ok(cut.attributes.position.count>g.attributes.position.count);g.dispose();cut.dispose();
 });
+
+
+test('burst destruction rebuilds a bounded visual batch and eventually catches up',async()=>{
+ const THREE=await import('../vendor/three.module.js'),{createVoxelWallView}=await import('../voxel-wall-view.js');
+ const world=createVoxelWalls('duel'),scene=new THREE.Scene(),view=createVoxelWallView(scene,world),meshes=scene.children.slice(0,world.walls.length);
+ for(let i=0;i<world.walls.length;i++)world.apply(i,[0]);
+ view.update(1/60);
+ const current=()=>meshes.filter((m,i)=>m.userData.version===world.walls[i].version).length;
+ assert.ok(current()>=1&&current()<=3,'Mass destruction is not rebuilt in one blocking frame');
+ world.apply(0,[1]);
+ for(let i=0;i<world.walls.length+2;i++)view.update(1/60);
+ assert.equal(current(),world.walls.length,'No dirty chunks are lost when damage arrives during a rebuild');
+ world.reset();for(let i=0;i<world.walls.length+2;i++)view.update(1/60);assert.equal(current(),world.walls.length);
+});

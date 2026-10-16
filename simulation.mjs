@@ -1,4 +1,4 @@
-import {DUEL_SOLIDS,DUEL_BOUNDS} from './arena.mjs';
+import {DUEL_SOLIDS,DUEL_BOUNDS,DUEL_FLOOR} from './arena.mjs';
 import {SHOP_SOLIDS,collideShop} from './shop.mjs';
 import {LAUNCHER,clayHit} from './skeet.mjs';
 export const LIMIT=27, SPEED=4.5;
@@ -25,7 +25,15 @@ export function resolveBarrelShot(player,data){
  if(data.muzzleOffset!==undefined){
   const offset=data.muzzleOffset;
   if(!offset||![offset.x,offset.y,offset.z].every(Number.isFinite)||Math.hypot(offset.x,offset.y,offset.z)>2.3)return null;
-  origin={x:player.x+offset.x,y:player.y+1.5+offset.y,z:player.z+offset.z};
+  let eye={x:player.x,y:player.y+1.5,z:player.z};
+  if(data.renderedEye!==undefined){
+   const shown=data.renderedEye;
+   // Allow normal prediction/interpolation lag, but never a remote muzzle
+   // elsewhere in the map. Old clients without an eye retain their protocol.
+   if(!shown||![shown.x,shown.y,shown.z].every(Number.isFinite)||Math.hypot(shown.x-eye.x,shown.y-eye.y,shown.z-eye.z)>2)return null;
+   eye=shown;
+  }
+  origin={x:eye.x+offset.x,y:eye.y+offset.y,z:eye.z+offset.z};
  }else if(data.muzzle){
   if(![data.muzzle.x,data.muzzle.y,data.muzzle.z].every(Number.isFinite)||Math.hypot(data.muzzle.x-player.x,data.muzzle.y-player.y-1.5,data.muzzle.z-player.z)>(player.weapon==='shotgun'?2.3:2))return null;
   origin={...data.muzzle};
@@ -84,7 +92,7 @@ export function traceShot(origin,direction,players=[],clays=[],walls=null,maxDis
  return {...(voxel?{wallId:voxel.wallId,cell:voxel.cell}:{}),distance,hit,targetId,clayId,surface,normal,headshot:surface==='player'&&headshot,point:{x:origin.x+direction.x*distance,y:origin.y+direction.y*distance,z:origin.z+direction.z*distance}};
 }
 export function move(p,input,dt,{mapId='practice'}={}){
- const duel=mapId==='duel',floor=duel?-4:0,limitX=duel?DUEL_BOUNDS.x-.3:LIMIT,limitZ=duel?DUEL_BOUNDS.z-.3:LIMIT;
+ const duel=mapId==='duel',floor=duel?DUEL_FLOOR:0,limitX=duel?DUEL_BOUNDS.x-.3:LIMIT,limitZ=duel?DUEL_BOUNDS.z-.3:LIMIT;
  const shopOld={x:p.x,z:p.z};
  const x=Math.max(-1,Math.min(1,Number(input.x)||0)),z=Math.max(-1,Math.min(1,Number(input.z)||0));
  const len=Math.max(1,Math.hypot(x,z));

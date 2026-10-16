@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {spawn} from 'node:child_process';
-import {SHOTGUN_PICKUP} from '../weapons.mjs';
+import {SHOTGUN_PICKUP,shotgunPellets} from '../weapons.mjs';
 import {traceShot} from '../simulation.mjs';
 test('multiplayer shares room state, isolates rooms, enforces ammo and reload',async()=>{
  const child=spawn(process.execPath,['server.mjs'],{cwd:new URL('../',import.meta.url),env:{...process.env,PORT:'3099',ADMIN_CODE:'0310'},stdio:['ignore','pipe','pipe']});
@@ -59,14 +59,15 @@ test('multiplayer shares room state, isolates rooms, enforces ammo and reload',a
    while(true){const {value,done}=await reader.read();assert.equal(done,false);buffer+=new TextDecoder().decode(value);const match=buffer.match(/event: shot\ndata: ([^\n]+)/);if(match)return JSON.parse(match[1]);}
   }finally{clearTimeout(timer);controller.abort();}
  }
- const first=await shotgunShot();assert.equal(first.weapon,'shotgun');assert.equal(first.fan,false);assert.equal(first.pellets.length,12);
+ const decodeShot=shot=>{assert.equal(shot.pellets,undefined);return {...shot,pellets:shotgunPellets(shot.origin,shot.direction,shot.barrelRight,shot.shotId,shot.barrel,shot.profile)};};
+ const first=decodeShot(await shotgunShot());assert.equal(first.weapon,'shotgun');assert.equal(first.fan,false);assert.equal(first.pellets.length,12);
  shotgunState=(await state(c.token)).players.find(p=>p.id===c.id);assert.equal(shotgunState.ammo,1);assert.equal(shotgunState.reloadUntil,0);
- await new Promise(r=>setTimeout(r,200));const second=await shotgunShot();assert.equal(second.pellets.length,12);assert.notEqual(first.pellets[0].origin.x,second.pellets[0].origin.x);
+ await new Promise(r=>setTimeout(r,200));const second=decodeShot(await shotgunShot());assert.equal(second.pellets.length,12);assert.notEqual(first.pellets[0].origin.x,second.pellets[0].origin.x);
  assert.equal((await state(c.token)).players.find(p=>p.id===c.id).ammo,0);
  await post('equip',{token:c.token,weapon:'revolver'});await post('equip',{token:c.token,weapon:'shotgun'});await post('fire',{token:c.token});assert.equal((await state(c.token)).players.find(p=>p.id===c.id).ammo,0);
  await post('reload',{token:c.token});await post('equip',{token:c.token,weapon:'revolver'});shotgunState=(await state(c.token)).players.find(p=>p.id===c.id);assert.equal(shotgunState.weapon,'shotgun');assert.ok(shotgunState.reloadUntil>Date.now());
  await new Promise(resolve=>setTimeout(resolve,2450));assert.equal((await state(c.token)).players.find(p=>p.id===c.id).ammo,2);
- const both=await shotgunShot(true);assert.equal(both.pellets.length,24);assert.notEqual(both.pellets[0].origin.x,both.pellets[12].origin.x);assert.equal((await state(c.token)).players.find(p=>p.id===c.id).ammo,0);
+ const both=decodeShot(await shotgunShot(true));assert.equal(both.pellets.length,24);assert.notEqual(both.pellets[0].origin.x,both.pellets[12].origin.x);assert.equal((await state(c.token)).players.find(p=>p.id===c.id).ammo,0);
  // Ammo changes cannot bypass the shop or currency by calling the old endpoint.
  for(const path of ['modify','buy']){
   const response=await fetch('http://localhost:3099/api/'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:c.token,weapon:'shotgun',mod:'slug',beans:99999})});assert.equal(response.status,403);

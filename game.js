@@ -28,7 +28,7 @@ import {createSkeetView} from './skeet-view.js';
 import {AMMO_MODS,ammoProfile,SHOTGUN_PICKUP,canPickUpShotgun,WEAPONS,shotgunPellets,SHOTGUN_INTERVAL,shotgunDischarge,SHOTGUN_SEPARATION,SHOTGUN_MODEL_SCALE} from './weapons.mjs';
 import {createShellPhysics} from './shell-physics.js';
 import {createShotgun,animateShotgun} from './shotgun-view.js';
-import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil,captureBarrelRay} from './weapon-pose.js';
+import {placeWeapon,freeAimInput,followAim,stepRecoil,kickRecoil,captureBarrelRay,makeShotPayload} from './weapon-pose.js';
 import {move,TRAINING_TARGETS,traceShot,predictionCorrection,settlePrediction,FAN_INTERVAL,FAN_CLICK_WINDOW} from './simulation.mjs';
 const $=id=>document.getElementById(id);
 const gameLoop=createGameLoop({onFrame:now=>frame(now)});
@@ -168,7 +168,7 @@ function saveWallet(){if(online||walletSavePending)return;walletSavePending=true
 const autoFire=createAutoFire();
 const keys=new Set(),peers=new Map(),projectiles=[];let audio;
 const practiceBleeds=[];const pendingShots=new Map();let shotSequence=0,barrelHeat=0;
-let displayedAim=null,frozenAim=null,lastClick=-Infinity,queuedFanClick=false;
+let displayedAim=null,renderedAim=null,lastClick=-Infinity,queuedFanClick=false;
 const particles=createParticles(scene),emitParticles=particles.emit;
 const wallWorld=createVoxelWalls(),wallView=createVoxelWallView(scene,wallWorld);
 const wallOld={x:0,y:0,z:0};
@@ -189,7 +189,7 @@ const roundGeometry=new THREE.CapsuleGeometry(.045,.4,3,8),roundMaterial=new THR
 const glowMaterial=new THREE.MeshBasicMaterial({color:0xffb744,transparent:true,opacity:.22,depthWrite:false});
 const pelletMesh=new THREE.InstancedMesh(new THREE.CapsuleGeometry(.017,.28,2,5),new THREE.MeshBasicMaterial({color:0xffffdf}),384),pelletMatrix=new THREE.Matrix4(),pelletRotation=new THREE.Quaternion(),pelletUp=new THREE.Vector3(0,1,0),pelletScale=new THREE.Vector3(1,1,1);pelletMesh.count=0;pelletMesh.frustumCulled=false;pelletMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(pelletMesh);
 const ammoByWeapon={revolver:6,shotgun:2,bow:1};let lastShotWeapon='revolver';
-function showWeapon(next){if(next===weapon)return;weapon=next;focusHeld=false;gun=weapon==='shotgun'?shotgunGun:weapon==='bow'?bowGun:revolverGun;bowGun.visible=weapon==='bow';bowChargeAt=null;resetBow(bowGun);revolverGun.visible=weapon==='revolver';shotgunGun.visible=weapon==='shotgun';displayedAim=frozenAim=null;queuedFanClick=false;shotExposure.energy=shotExposure.visible=barrelHeat=0;wristSpring.angle=wristSpring.velocity=0;}
+function showWeapon(next){if(next===weapon)return;weapon=next;focusHeld=false;gun=weapon==='shotgun'?shotgunGun:weapon==='bow'?bowGun:revolverGun;bowGun.visible=weapon==='bow';bowChargeAt=null;resetBow(bowGun);revolverGun.visible=weapon==='revolver';shotgunGun.visible=weapon==='shotgun';displayedAim=renderedAim=null;queuedFanClick=false;shotExposure.energy=shotExposure.visible=barrelHeat=0;wristSpring.angle=wristSpring.velocity=0;}
 function equip(next){if(!gameLoop.running||local.reloadUntil||reloading||next===weapon||(next==='shotgun'&&!local.hasShotgun)||(next==='bow'&&!local.hasBow))return;if(online)post('equip',{weapon:next}).catch(actionError);else{ammoByWeapon[weapon]=local.ammo;showWeapon(next);local.weapon=next;local.ammo=ammoByWeapon[next];}}
 const resetButton=document.createElement('button');resetButton.id='reset-walls';resetButton.textContent='Reset walls';document.body.append(resetButton);
 resetButton.onclick=()=>{if(online)post('resetWalls').catch(actionError);else{wallWorld.reset();wallView.update(0);renderScene();}};
@@ -210,7 +210,7 @@ let lookYaw=0,lookPitch=0,handYaw=0,handPitch=0,previousFreeX=0,previousFreeY=0;
 const wristSpring={angle:0,velocity:0};let wristTwist=0,flashLife=0;
 const cameraSpring={angle:0,velocity:0};
 const deathBody=cowboy(0xc17a47);deathBody.visible=false;
-const remoteFlashes=[],stuckArrows=[],bowMarker=createBowMarker(scene),bowGuide=createBowGuide(scene),bowPath=[];let nextBowPreview=0;
+const remoteFlashes=[],stuckArrows=[],bowMarker=createBowMarker(scene),bowGuide=createBowGuide(scene),bowPath=[];
 const predicted={x:0,y:0,z:8,vy:0,yaw:0,pitch:0};let predictionReady=false,correction={x:0,z:0};
 const smoothPosition=new THREE.Vector3(0,1.5,8);let walkBlend=0,walkPhase=0,inputInFlight=false;
 const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
@@ -218,10 +218,10 @@ const angleDelta=(from,to)=>Math.atan2(Math.sin(to-from),Math.cos(to-from));
 const positionScratch=new THREE.Vector3(),uvScratch=new THREE.Vector3(),beamEndScratch=new THREE.Vector3(),directionScratch=new THREE.Vector3();
 const practiceCandidates=createTrainingCans(),shotCandidates=[];
 const duelScenery=new THREE.Group();scene.add(duelScenery);duelScenery.visible=false;
-for(const solid of DUEL_SOLIDS)box(solid.w,solid.h,solid.d,edge,duelScenery,solid.x,solid.y,solid.z);
+const duelMaterials=new Map();for(const solid of DUEL_SOLIDS){const color=solid.color??0x796345;if(!duelMaterials.has(color))duelMaterials.set(color,mat(color));box(solid.w,solid.h,solid.d,duelMaterials.get(color),duelScenery,solid.x,solid.y,solid.z);}
 const bowMeter=document.createElement('div');bowMeter.id='bow-charge';bowMeter.hidden=true;document.body.append(bowMeter);
 const duelUI=createDuelUI({choose:data=>post('loadout',data),resume:()=>{menu?.close();captureMouse().catch(()=>syncActivity(false));}});
-function clearArrows(){bowMarker.visible=bowGuide.visible=false;nextBowPreview=0;for(const a of stuckArrows)a.mesh.removeFromParent();stuckArrows.length=0;}
+function clearArrows(){bowMarker.visible=bowGuide.visible=false;for(const a of stuckArrows)a.mesh.removeFromParent();stuckArrows.length=0;}
 function setMapView(next){
  if(next===mapId)return;mapId=next;laserEffects.clear();scene.fog.near=next==='duel'?100:38;scene.fog.far=next==='duel'?230:100;const span=next==='duel'?65:35;Object.assign(sun.shadow.camera,{left:-span,right:span,top:span,bottom:-span,far:180});sun.shadow.camera.updateProjectionMatrix();wallWorld.setMap(next);wallView.update(0);clearArrows();
  const practice=next==='practice';scenery.visible=grid.visible=practice;duelScenery.visible=!practice;pickupStand.visible=practice;skeetView.machine.visible=practice;
@@ -229,9 +229,7 @@ function setMapView(next){
  resetButton.hidden=!practice;renderer.shadowMap.needsUpdate=true;
 }
 function shotPayload(origin,direction,extra={}){
- // Offset from the same rendered eye as the weapon; the authority anchors it
- // to its player pose, avoiding stale world coordinates while moving/respawning.
- return {...extra,muzzleOffset:{x:origin.x-camera.position.x,y:origin.y-camera.position.y,z:origin.z-camera.position.z},direction,gunYaw:Math.atan2(-direction.x,-direction.z),gunPitch:Math.asin(clamp(direction.y,-1,1))};
+ return makeShotPayload({origin,direction},renderedAim?.eye??camera.position,extra);
 }
 function actionError(error){
  // A rejected action is not a lost peer connection. Session failures still
@@ -254,12 +252,12 @@ function remoteShot(s){
  const material=new THREE.MeshBasicMaterial({color:0xffd88d,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false}),shape=new THREE.Mesh(new THREE.ConeGeometry(.18,.7,7),material);shape.rotation.x=-Math.PI/2;shape.position.z=-.3;f.add(shape);f.scale.setScalar((s.weapon==='shotgun'?2.2:1)*(s.profile?.flash||1));scene.add(f);remoteFlashes.push({mesh:f,material,life:.09});
  if(g){if(s.weapon==='revolver'){setRevolverAmmo(g.userData.revolver,s.profile?.capacity===3?'heavy':'standard');cockRevolver(g.userData.revolver,gameLoop.now(),s.fan);}g.userData.kick=.18;}
 }
-function captureAim(){const {origin,direction}=captureBarrelRay(gun);
+function captureAim(charge=null){const {origin,direction}=captureBarrelRay(gun);
  const candidates=online?shotCandidates:practiceCandidates;
  if(online){shotCandidates.length=0;if(mapId==='practice')shotCandidates.push(...practiceCandidates);for(const g of peers.values())if(g.userData.target)shotCandidates.push(g.userData.target);}
  liveClays.length=0;const flights=online?serverClays:skeetRange.flights,now=skeetTime();
  for(let i=0;i<flights.length;i++)liveClays.push(clayPose(flights[i],now,clayCandidates[i]));
- return {origin,direction,result:traceShot(origin,direction,candidates,liveClays,wallWorld)};
+ return {origin,direction,eye:camera.position.clone(),barrelRight:new THREE.Vector3(1,0,0).transformDirection((gun.userData.muzzleObject??gun).matrixWorld),profile:weapon==='bow'?chargedArrow(charge??(bowChargeAt===null?0:(gameLoop.now()-bowChargeAt)/BOW_CHARGE_MS)):ammoProfile(weapon,local.mods),result:weapon==='revolver'&&focusBlend>.001?traceShot(origin,direction,candidates,liveClays,wallWorld):null};
 }
 function projectileImpact(result,projectile=null){
  const now=gameLoop.now();
@@ -277,10 +275,17 @@ function shotEffect(s,predicted=false){
  if(!online)for(const change of s.wallChanges||[])wallView.burst(change.wallId,change.removed);
  if(!predicted)remoteShot(s);
  if(s.profile?.laser){if(s.laserEnd)laserEffects.fire(s.origin,s.laserEnd);return;}
- if(s.pellets){s.pellets.forEach((pellet,i)=>shotEffect({...pellet,id:s.id,shotId:`${s.shotId}/${i}`,weapon:'shotgun',bulletSize:s.bulletSize,profile:s.profile,pellet:true},predicted));return;}
+ if(s.weapon==='shotgun'&&!s.pellet){
+  const pellets=s.pellets??shotgunPellets(s.origin,s.direction,s.barrelRight,s.shotId,s.barrel??0,s.profile);
+  // Keep all local damage simulation. Network birdshot only needs a uniform
+  // sample of tracers; authority still simulates all 80 pellets per barrel.
+  const stride=online?Math.max(1,Math.floor((s.profile?.pellets||12)/16)):1;
+  for(let i=0;i<pellets.length;i+=stride)shotEffect({...pellets[i],id:s.id,shotId:`${s.shotId}/${i}`,weapon:'shotgun',bulletSize:s.bulletSize,profile:s.profile,pellet:true},predicted);return;
+ }
 
  const existing=s.id===id&&s.shotId?pendingShots.get(s.shotId):null;
  if(existing&&!predicted){existing.confirmed=true;if(!existing.physics.alive)pendingShots.delete(s.shotId);return;}
+ if(online&&projectiles.length>=512)return;
  const direction=new THREE.Vector3(s.direction.x,s.direction.y,s.direction.z).normalize(),origin=new THREE.Vector3(s.origin.x,s.origin.y,s.origin.z);
  let round=null;
  if(s.weapon==='bow'){round=createArrow();round.position.copy(origin);round.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,-1),direction);round.position.addScaledVector(direction,ARROW_TIP_Z);scene.add(round);}
@@ -304,7 +309,7 @@ function applyState(s){if(s.time<=serverTime)return;const previousMap=mapId;setM
  for(const g of dummies)g.visible=mapId==='practice';
  for(const p of s.cans||[]){const index=practiceCandidates.findIndex(can=>can.id===p.id);if(index<0)continue;const g=dummies[index];Object.assign(practiceCandidates[index],p);g.visible=true;if(p.hp>0&&g.userData.ragdoll){resetCan(g);g.position.set(p.x,p.y,p.z);}if(p.hp<=0&&!g.userData.ragdoll)canEffects.kill(g);}
  renderer.shadowMap.needsUpdate=true;
- if(!predictionReady||(!local.hp&&mine.hp>0)||local.spawnSerial!==mine.spawnSerial){Object.assign(predicted,{x:mine.x,y:mine.y,z:mine.z,vy:0,vx:0,vz:0,correctionVX:0,correctionVZ:0});correction={x:0,z:0};smoothPosition.set(mine.x,mine.y+1.5,mine.z);predictionReady=true;displayedAim=frozenAim=null;lastShot=-Infinity;bowChargeAt=null;resetBow(bowGun);predicted.jumpHeld=false;wristSpring.angle=wristSpring.velocity=cameraSpring.angle=cameraSpring.velocity=0;freeX=freeY=handYaw=handPitch=0;yaw=lookYaw=mine.yaw;pitch=lookPitch=mine.pitch;clearArrows();for(const p of projectiles)p.round?.removeFromParent();projectiles.length=0;pendingShots.clear();}
+ if(!predictionReady||(!local.hp&&mine.hp>0)||local.spawnSerial!==mine.spawnSerial){Object.assign(predicted,{x:mine.x,y:mine.y,z:mine.z,vy:0,vx:0,vz:0,correctionVX:0,correctionVZ:0});correction={x:0,z:0};smoothPosition.set(mine.x,mine.y+1.5,mine.z);predictionReady=true;displayedAim=renderedAim=null;lastShot=-Infinity;bowChargeAt=null;resetBow(bowGun);predicted.jumpHeld=false;wristSpring.angle=wristSpring.velocity=cameraSpring.angle=cameraSpring.velocity=0;freeX=freeY=handYaw=handPitch=0;yaw=lookYaw=mine.yaw;pitch=lookPitch=mine.pitch;clearArrows();for(const p of projectiles)p.round?.removeFromParent();projectiles.length=0;pendingShots.clear();}
  else correction=predictionCorrection(predicted,mine);
  if(local.hp>0&&mine.hp<=0){deathAt=gameLoop.now();resetCan(deathBody);deathBody.position.set(mine.x,mine.y,mine.z);deathBody.rotation.y=mine.yaw;if(deathBody.userData.lastImpact){if(deathBody.userData.lastImpact.stuck)lodgeArrow(deathBody.userData.lastImpact);canEffects.hit(deathBody,deathBody.userData.lastImpact);delete deathBody.userData.lastImpact;}else canEffects.kill(deathBody);bowChargeAt=null;}
  if(mine.hp>0){deathBody.visible=false;deathBody.position.set(mine.x,mine.y,mine.z);}
@@ -427,7 +432,7 @@ function fire(requestFan,now=gameLoop.now(),both=false){
  const shotProfile=ammoProfile(weapon,local.mods);
  if(shotProfile.laser){
   if(!menu?.isAdmin()||!local.powers?.noCooldown&&now-lastShot<250)return;
-  const {origin,direction}=captureAim(),shotId=String(++shotSequence),profile=shotProfile;
+  const {origin,direction}=renderedAim||captureAim(),shotId=String(++shotSequence),profile=shotProfile;
   lastShot=now;lastShotWeapon=weapon;queuedFanClick=false;wristSpring.angle=wristSpring.velocity=cameraSpring.angle=cameraSpring.velocity=wristTwist=0;shotExposure.energy=shotExposure.visible=barrelHeat=0;sound();
   if(!local.powers?.infiniteAmmo)local.ammo--;ammoByWeapon[weapon]=local.ammo;
   if(online)post('fire',shotPayload(origin,direction,{shotId})).catch(actionError);
@@ -436,16 +441,16 @@ function fire(requestFan,now=gameLoop.now(),both=false){
  }
  if(weapon==='bow'){
   if(now-lastShot<WEAPONS.bow.reload)return;
-  const {origin,direction}=captureAim(),profile=chargedArrow(bowChargeAt===null?0:(now-bowChargeAt)/BOW_CHARGE_MS),shotId=String(++shotSequence);
+  const {origin,direction,profile}=renderedAim||captureAim(),shotId=String(++shotSequence);
   lastShot=now;lastShotWeapon=weapon;if(!local.powers?.infiniteAmmo)local.ammo--;ammoByWeapon.bow=local.ammo;sound(profile.charge);releaseBow(bowGun);bowMarker.visible=bowGuide.visible=false;
   if(!local.powers?.noRecoil){wristSpring.velocity+=.7+.6*profile.charge;cameraSpring.velocity+=.06+.04*profile.charge;}reloading=now+WEAPONS.bow.reload;
   shotEffect({id:online?id:'local',shotId,weapon,origin,direction,profile},online);
-  if(online)post('fire',shotPayload(origin,direction,{shotId})).catch(actionError);
+  if(online)post('fire',shotPayload(origin,direction,{shotId,charge:profile.charge})).catch(actionError);
   bowChargeAt=null;return;
  }
  if(weapon==='shotgun'){
   if(local.ammo<1||(!local.powers?.noCooldown&&now-lastShot<SHOTGUN_INTERVAL)||Math.abs(shotgunGun.userData.barrels.rotation.x)>.025)return;
-  const aim=captureAim(),{origin,direction}=aim,barrelRight=new THREE.Vector3(1,0,0).transformDirection(gun.matrixWorld),shotId=String(++shotSequence);
+  const aim=renderedAim||captureAim(),{origin,direction,barrelRight}=aim,shotId=String(++shotSequence);
   const {barrel,cost}=shotgunDischarge(local.ammo,both);shotgunGun.userData.lastBarrel=barrel;
   const profile=ammoProfile(weapon,local.mods);
   const pellets=shotgunPellets(origin,direction,barrelRight,shotId,barrel,profile);
@@ -458,9 +463,8 @@ function fire(requestFan,now=gameLoop.now(),both=false){
  }
  const fan=requestFan&&now-lastShot<=650;
  if(!local.powers?.noCooldown&&now-lastShot<(fan?FAN_INTERVAL+15:250))return;
- // Freeze the exact ray that was shown, before recoil changes the gun pose.
- const aim=displayedAim||captureAim(),origin=aim.origin.clone(),direction=aim.direction.clone(),profile=ammoProfile(weapon,local.mods),result=aim.result;
- frozenAim={origin:origin.clone(),direction:direction.clone(),result,until:now+90};
+ // Fire the exact ray from the last displayed frame, before recoil.
+ const aim=renderedAim||captureAim(),origin=aim.origin.clone(),direction=aim.direction.clone(),profile=ammoProfile(weapon,local.mods);
  lastShot=now;lastShotWeapon=weapon;cockRevolver(gun,now,fan);if(!local.powers?.noRecoil){const beforeAngle=wristSpring.angle,beforeKick=wristSpring.velocity;kickRecoil(wristSpring,fan);wristSpring.velocity=beforeKick+(wristSpring.velocity-beforeKick)*profile.recoil;wristSpring.angle=beforeAngle+(wristSpring.angle-beforeAngle)*profile.recoil;wristTwist+=(Math.random()-.35)*(fan?.135:.12);cameraSpring.velocity=Math.min(2,cameraSpring.velocity+1.1*profile.recoil);}sound();flashLife=.055;flash.visible=gapFlash.visible=true;flashOuterMaterial.opacity=.7;flashCoreMaterial.opacity=1;flash.rotation.z=Math.random()*Math.PI;flash.scale.set(profile.flash||1,profile.flash||1,(profile.flash||1)*(.85+Math.random()*.4));muzzleLight.intensity=20;barrelHeat=Math.min(1,barrelHeat+.45);
  shotExposure.energy=Math.min(1.2,shotExposure.energy+.38);
  emitParticles(origin,direction,0xffd684,4,false);emitParticles(origin,direction,0xaaa396,2,true);
@@ -486,7 +490,7 @@ function sendInput(active=gameLoop.running){
 function syncActivity(allowRun=true){
  if(!renderReady)return;
  const active=hasJoined&&!joining&&allowRun!==false&&!document.hidden&&document.hasFocus()&&document.pointerLockElement===$('game');
- if(!active){laserEffects.clear();bowMarker.visible=bowGuide.visible=false;nextBowPreview=0;autoFire.release();bowChargeAt=null;if(online&&weapon==='bow')post('charge',{active:false}).catch(actionError);}
+ if(!active){laserEffects.clear();bowMarker.visible=bowGuide.visible=false;autoFire.release();bowChargeAt=null;if(online&&weapon==='bow')post('charge',{active:false}).catch(actionError);}
  document.body.classList.toggle('playing',active);if(!active)shopPrompt.hidden=true;keys.clear();focusHeld=false;queuedFanClick=false;lastClick=-Infinity;
  clearInterval(inputTimer);clearInterval(idleTimer);inputTimer=idleTimer=null;
  if(active){
@@ -494,7 +498,7 @@ function syncActivity(allowRun=true){
   last=lastAimFrame=gameLoop.now();gameLoop.start();audio?.resume().catch(()=>{});
   if(online){sendInput();inputTimer=setInterval(sendInput,50);}
  }else{
-  gameLoop.stop();audio?.pause().catch(()=>{});displayedAim=frozenAim=null;
+  gameLoop.stop();audio?.pause().catch(()=>{});displayedAim=renderedAim=null;
   if(online){
    for(const p of projectiles)if(p.round)scene.remove(p.round);projectiles.length=0;pendingShots.clear();pelletMesh.count=0;
    sendInput(false);idleTimer=setInterval(()=>sendInput(false),5000);
@@ -535,6 +539,7 @@ function frame(now){
  animateRevolver(gun,now,dt);
  animateShotgun(shotgunGun,weapon==='shotgun'?local.ammo:ammoByWeapon.shotgun,dt,weapon==='shotgun'&&reloadEnd?1-(reloadEnd-(online?skeetTime():now))/WEAPONS.shotgun.reload:-1,ejectShells);
  shotgunGun.userData.flash.children.forEach((flame,index)=>flame.visible=shotgunGun.userData.lastBarrel===2||index===shotgunGun.userData.lastBarrel);
+ renderedAim=captureAim(charge);
  const laserSelected=!!ammoProfile(weapon,local.mods).laser;
  const shotgunFlashDuration=shotgunGun.userData.lastBarrel===2?120:95,shotgunFlashPower=Math.max(0,1-(now-lastShot)/shotgunFlashDuration);
  shotgunGun.userData.flash.visible=weapon==='shotgun'&&lastShotWeapon==='shotgun'&&shotgunFlashPower>0;
@@ -572,11 +577,11 @@ function frame(now){
  const previewBow=weapon==='bow'&&locked&&local.hp>0&&local.ammo>0&&!reloading&&!reloadEnd&&(!duelState||duelState.phase==='active');
  if(charge<=.1)bowGuide.visible=false;
  if(!previewBow)bowMarker.visible=bowGuide.visible=false;
- else if(now>=nextBowPreview){const ray=captureAim();placeBowMarker(bowMarker,predictArrowImpact(ray,chargedArrow(charge),online?shotCandidates:practiceCandidates,liveClays,wallWorld,bowPath));placeBowGuide(bowGuide,bowPath,charge);nextBowPreview=now+1000/30;}
+ else{const ray=renderedAim;placeBowMarker(bowMarker,predictArrowImpact(ray,ray.profile,online?shotCandidates:practiceCandidates,liveClays,wallWorld,bowPath));placeBowGuide(bowGuide,bowPath,ray.profile.charge);}
  const aimOpacity=weapon==='revolver'&&locked&&local.hp>0&&!reloadEnd?focusBlend:0;
  aimBeam.visible=aimOpacity>.001;aimMaterial.opacity=.6*aimOpacity;aimMaterial.color.setHex(laserSelected?0xff3030:0xffdf9b);
- const liveAim=aimBeam.visible?captureAim():null;
- displayedAim=liveAim?(frozenAim&&now<frozenAim.until?frozenAim:liveAim):null;
+ const liveAim=aimBeam.visible?renderedAim:null;
+ displayedAim=liveAim;
  colorShift.uniforms.blast.value=!laserSelected&&weapon!=='bow'&&lastShotWeapon===weapon?(weapon==='shotgun'?(shotgunGun.userData.lastBarrel===2?2.2:1.7):1)*Math.exp(-Math.max(0,now-lastShot)/(weapon==='shotgun'?45:32)):0;
  if(colorShift.uniforms.blast.value>.001){const muzzle=liveAim?.origin??captureBarrelRay(gun).origin;muzzleLight.position.copy(muzzle);const muzzleUV=uvScratch.copy(muzzle).project(camera);colorShift.uniforms.muzzleUV.value.set(muzzleUV.x*.5+.5,muzzleUV.y*.5+.5);}
  colorShift.uniforms.heat.value=0;

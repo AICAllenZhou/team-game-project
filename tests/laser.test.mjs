@@ -17,9 +17,9 @@ test('laser instantly drills a complete wall tunnel and strikes a can behind it'
  for(const h of beam.impacts)for(const change of h.wallChanges)other.apply(change.wallId,change.removed);
  assert.deepEqual(other.snapshot(),world.snapshot());assert.ok(world.trace({...ray.origin,z:-3},ray.direction),'Adjacent wall remains intact');
 });
-test('laser crosses the expanded arena and stops at its indestructible boundary',()=>{
- const world=createVoxelWalls('duel'),ray={origin:{x:-48,y:1.5,z:6},direction:{x:1,y:0,z:0}};
- const beam=traceLaser(ray,profile,[],[],world);assert.ok(beam.end.x-ray.origin.x>90);assert.ok(Math.abs(beam.end.x-DUEL_BOUNDS.x)<1e-7);
+test('laser crosses the replacement arena, tunnels through cover and stops at its solid boundary',()=>{
+ const world=createVoxelWalls('duel'),ray={origin:{x:-13.5,y:1.5,z:5.4},direction:{x:1,y:0,z:0}};
+ const beam=traceLaser(ray,profile,[],[],world);assert.ok(beam.end.x-ray.origin.x>29);assert.ok(beam.impacts.some(hit=>hit.surface==='voxel'));assert.ok(Math.abs(beam.end.x-DUEL_BOUNDS.x)<1e-7);
  assert.equal(beam.impacts.at(-1).surface,'world');assert.equal(beam.impacts.at(-1).stopped,true);
 });
 test('only a verified admin loadout grants laser; ordinary commands cannot forge it',()=>{
